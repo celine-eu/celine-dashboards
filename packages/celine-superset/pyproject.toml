@@ -1,0 +1,53 @@
+[project]
+name = "celine-superset"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "authlib>=1.6.6",
+    "pyjwt>=2.10.1",
+    "requests>=2.32.5",
+]
+
+[dependency-groups]
+dev = [
+    "apache-superset==6.0.0",
+    "pytest>=9.0.2",
+    "python-semantic-release>=9.21.0",
+]
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["celine_superset*"]
+exclude = ["tests"]
+
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+
+build_command = """
+    uv lock --upgrade-package "$PACKAGE_NAME"
+    git add uv.lock
+    uv build
+"""
+
+branch = "main"
+changelog_file = "CHANGELOG.md"
+tag_format = "v{version}"
+commit_parser = "conventional"
+
+upload_to_release = false
+upload_to_pypi = false
+commit_version_number = false
+
+[tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf", "up"]
+parse_squash_commits = true
+ignore_merge_commits = true
