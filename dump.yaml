@@ -1,0 +1,9 @@
+contents:
+  - README.md
+  - config
+  - Dockerfile
+  - docker-compose.yaml
+  - .github
+  - taskfile.yaml
+
+output: sources.txt

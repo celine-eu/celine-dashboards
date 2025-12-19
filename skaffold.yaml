@@ -1,0 +1,24 @@
+apiVersion: skaffold/v4beta4
+kind: Config
+metadata:
+  name: superset-build-only
+
+build:
+  local:
+    push: false # build images inside Minikube’s Docker daemon
+    # required or .dockerignore is skipped
+    useBuildkit: true
+
+  tagPolicy:
+    envTemplate:
+      template: "latest"
+
+  artifacts:
+    - image: ghcr.io/celine-eu/superset
+      context: .
+      docker:
+        dockerfile: Dockerfile
+
+# Disable deployment completely
+manifests:
+  rawYaml: []

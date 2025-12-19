@@ -1,0 +1,161 @@
+volumes:
+  db_data:
+  redis:
+  superset_home:
+
+networks:
+  superset_net:
+    driver: bridge
+  celine_net:
+    external: true
+
+x-superset-volumes:
+  &superset-volumes # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
+  - ./config/superset:/app/docker
+  - superset_home:/app/superset_home
+
+x-common-build: &common-build
+  context: .
+  dockerfile: Dockerfile
+
+services:
+  superset:
+    image: ghcr.io/celine-eu/superset:latest
+    env_file:
+      - path: ./config/superset/.env
+        required: true
+      - path: ./config/superset/.env-local
+        required: false
+    build:
+      <<: *common-build
+    command: ["/app/docker/superset-bootstrap.sh", "app-gunicorn"]
+    user: "root"
+    restart: unless-stopped
+    networks:
+      - superset_net
+      - celine_net
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    volumes: *superset-volumes
+    environment:
+      SUPERSET_LOG_LEVEL: "${SUPERSET_LOG_LEVEL:-info}"
+    extra_hosts:
+      - "keycloak.celine.localhost:172.17.0.1"
+      - "superset.celine.localhost:172.17.0.1"
+
+  superset-init:
+    build:
+      <<: *common-build
+    command: ["/app/docker/superset-setup.sh"]
+    env_file:
+      - path: ./config/superset/.env # default
+        required: true
+      - path: ./config/superset/.env-local # optional override
+        required: false
+    depends_on:
+      db:
+        condition: service_started
+      redis:
+        condition: service_started
+    user: "root"
+    volumes: *superset-volumes
+    healthcheck:
+      disable: true
+    environment:
+      SUPERSET_LOG_LEVEL: "${SUPERSET_LOG_LEVEL:-info}"
+      SUPERSET_LOAD_EXAMPLES: "${SUPERSET_LOAD_EXAMPLES:-no}"
+    networks:
+      - superset_net
+    extra_hosts:
+      - "keycloak.celine.localhost:172.17.0.1"
+      - "superset.celine.localhost:172.17.0.1"
+
+  superset-worker:
+    build:
+      <<: *common-build
+    command: ["/app/docker/superset-bootstrap.sh", "worker"]
+    env_file:
+      - path: ./config/superset/.env # default
+        required: true
+      - path: ./config/superset/.env-local # optional override
+        required: false
+    restart: unless-stopped
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    user: "root"
+    volumes: *superset-volumes
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A superset.tasks.celery_app:app inspect ping -d celery@$$HOSTNAME",
+        ]
+    environment:
+      SUPERSET_LOG_LEVEL: "${SUPERSET_LOG_LEVEL:-info}"
+    networks:
+      - superset_net
+    extra_hosts:
+      - "keycloak.celine.localhost:172.17.0.1"
+      - "superset.celine.localhost:172.17.0.1"
+
+  superset-worker-beat:
+    build:
+      <<: *common-build
+    command: ["/app/docker/superset-bootstrap.sh", "beat"]
+    env_file:
+      - path: ./config/superset/.env # default
+        required: true
+      - path: ./config/superset/.env-local # optional override
+        required: false
+    restart: unless-stopped
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    user: "root"
+    volumes: *superset-volumes
+    healthcheck:
+      disable: true
+    environment:
+      SUPERSET_LOG_LEVEL: "${SUPERSET_LOG_LEVEL:-info}"
+    networks:
+      - superset_net
+    extra_hosts:
+      - "keycloak.celine.localhost:172.17.0.1"
+      - "superset.celine.localhost:172.17.0.1"
+
+  db:
+    image: postgres:17.4
+    environment:
+      - POSTGRES_DB=superset
+      - POSTGRES_USER=superset
+      - POSTGRES_PASSWORD=superset
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - superset_net
+    # extra_hosts:
+    #   - "keycloak.celine.localhost:172.17.0.1"
+    #   - "superset.celine.localhost:172.17.0.1"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-bookworm
+    networks:
+      - superset_net
+    restart: unless-stopped
+    volumes:
+      - redis:/data
+    # Redis is limited to 7.2-bookworm due to licencing change
+    # https://redis.io/blog/redis-adopts-dual-source-available-licensing/
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 30s
+      retries: 50
+      start_period: 30s
