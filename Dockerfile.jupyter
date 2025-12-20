@@ -10,7 +10,7 @@ RUN apt-get update && \
 RUN pip install --no-cache-dir psycopg2-binary sqlalchemy pandas scikit-learn
 RUN pip install --no-cache-dir celine-utils
 
-COPY ./config/jupyter/jupyter_server_config.py /home/jovyan/.jupyter/
+COPY ./config/jupyter/jupyterhub_config.py /home/jovyan/.jupyter/
 
 COPY ./packages/jupyter_jwt_auth /opt/jupyter_jwt_auth
 RUN pip install /opt/jupyter_jwt_auth
