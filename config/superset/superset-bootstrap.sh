@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-PORT=${PORT:-8088}
-
 case "${1}" in
   worker)
     echo "Starting Celery worker..."
@@ -16,7 +14,7 @@ case "${1}" in
     ;;
   app)
     echo "Starting web app (using development server)..."
-    flask run -p $PORT --with-threads --reload --debugger --host=0.0.0.0
+    flask run -p $SUPERSET_PORT --with-threads --reload --debugger --host=0.0.0.0
     ;;
   app-gunicorn)
     echo "Starting web app..."

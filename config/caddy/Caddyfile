@@ -1,0 +1,12 @@
+{
+  auto_https off
+  admin off
+}
+
+http://superset.celine.localhost {
+  reverse_proxy oauth2-proxy:4180
+}
+
+http://keycloak.celine.localhost {
+  reverse_proxy keycloak:80
+}

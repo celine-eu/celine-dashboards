@@ -26,8 +26,13 @@ import sys
 
 from celery.schedules import crontab
 from flask_caching.backends.filesystemcache import FileSystemCache
+from flask_appbuilder.security.manager import AUTH_REMOTE_USER
 
-logger = logging.getLogger()
+
+from celine_superset.auth.security_manager import (
+    OAuth2ProxySecurityManager,
+)
+from celine_superset.auth.roles import DEFAULT_ROLE
 
 DB_DIALECT = os.getenv("DB_DIALECT", "postgres")
 DB_HOST = os.getenv("DB_HOST", "postgres")
@@ -36,21 +41,9 @@ DB_USER = os.getenv("DB_USER", "superset")
 DB_PASS = os.getenv("DB_PASS", "superset")
 DB_NAME = os.getenv("DB_NAME", "superset")
 
-EXAMPLES_USER = os.getenv("EXAMPLES_USER")
-EXAMPLES_PASSWORD = os.getenv("EXAMPLES_PASSWORD")
-EXAMPLES_HOST = os.getenv("EXAMPLES_HOST")
-EXAMPLES_PORT = os.getenv("EXAMPLES_PORT")
-EXAMPLES_DB = os.getenv("EXAMPLES_DB")
-
 # The SQLAlchemy connection string.
 SQLALCHEMY_DATABASE_URI = (
     f"{DB_DIALECT}://" f"{DB_USER}:{DB_PASS}@" f"{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-
-SQLALCHEMY_EXAMPLES_URI = (
-    f"{DB_DIALECT}://"
-    f"{EXAMPLES_USER}:{EXAMPLES_PASSWORD}@"
-    f"{EXAMPLES_HOST}:{EXAMPLES_PORT}/{EXAMPLES_DB}"
 )
 
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -74,93 +67,35 @@ CACHE_CONFIG = {
 }
 DATA_CACHE_CONFIG = CACHE_CONFIG
 
-
-class CeleryConfig:
-    broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CELERY_DB}"
-    imports = (
-        "superset.sql_lab",
-        "superset.tasks.scheduler",
-        "superset.tasks.thumbnails",
-        "superset.tasks.cache",
-    )
-    result_backend = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
-    worker_prefetch_multiplier = 1
-    task_acks_late = False
-    beat_schedule = {
-        "reports.scheduler": {
-            "task": "reports.scheduler",
-            "schedule": crontab(minute="*", hour="*"),
-        },
-        "reports.prune_log": {
-            "task": "reports.prune_log",
-            "schedule": crontab(minute=10, hour=0),
-        },
-    }
-
-
-CELERY_CONFIG = CeleryConfig
-
 ENABLE_JAVASCRIPT_CONTROLS = True
-
 FEATURE_FLAGS = {"ALERT_REPORTS": True}
-ALERT_REPORTS_NOTIFICATION_DRY_RUN = True
-WEBDRIVER_BASEURL = "http://superset:8088/"  # When using docker compose baseurl should be http://superset_app:8088/  # noqa: E501
-# The base URL for the email report hyperlinks.
-WEBDRIVER_BASEURL_USER_FRIENDLY = WEBDRIVER_BASEURL
 SQLLAB_CTAS_NO_LIMIT = True
 
 log_level_text = os.getenv("SUPERSET_LOG_LEVEL", "INFO")
 LOG_LEVEL = getattr(logging, log_level_text.upper(), logging.INFO)
 
-if os.getenv("CYPRESS_CONFIG") == "true":
-    # When running the service as a cypress backend, we need to import the config
-    # located @ tests/integration_tests/superset_test_config.py
-    base_dir = os.path.dirname(__file__)
-    module_folder = os.path.abspath(
-        os.path.join(base_dir, "../../tests/integration_tests/")
-    )
-    sys.path.insert(0, module_folder)
-    from superset_test_config import *  # noqa
-
-    sys.path.pop(0)
-
-
-from custom_security_manager import CustomSecurityManager, JWTRemoteUserMiddleware
-from config import DEFAULT_ROLE
-from flask_appbuilder.security.manager import AUTH_REMOTE_USER
-
-
-ADDITIONAL_MIDDLEWARE = [JWTRemoteUserMiddleware]
-CUSTOM_SECURITY_MANAGER = CustomSecurityManager
+CUSTOM_SECURITY_MANAGER = OAuth2ProxySecurityManager
 
 AUTH_TYPE = AUTH_REMOTE_USER
 AUTH_USER_REGISTRATION = True  # Allow automatic user creation
 AUTH_USER_REGISTRATION_ROLE = DEFAULT_ROLE
+AUTH_ROLES_SYNC_AT_LOGIN = True
 
-# Make sure cookies apply to all subpaths and subdomains
-# SESSION_COOKIE_DOMAIN = ".celine.local"
+# # Make sure cookies apply to all subpaths and subdomains
+# # TODO: use env and some logic here for prod
+# SESSION_COOKIE_DOMAIN = ".celine.localhost"
 # SESSION_COOKIE_PATH = "/"
-# SESSION_COOKIE_SAMESITE = "None"  # or "Lax" if you prefer
-# SESSION_COOKIE_SECURE = False  # dev/self-signed; set True in prod with real cert
+# SESSION_COOKIE_SAMESITE = "Lax"
+# SESSION_COOKIE_SECURE = False
+# WTF_CSRF_ENABLED = False
+
 
 # Trust the proxy (REQUIRED if using X-Forwarded headers)
 ENABLE_PROXY_FIX = True
 
-# WTF_CSRF_ENABLED = False
 
-# #
-# # Optionally import superset_config_docker.py (which will have been included on
-# # the PYTHONPATH) in order to allow for local settings to be overridden
-# #
-# try:
-#     import superset_config_docker
-#     from superset_config_docker import *  # noqa
-
-#     logger.info(
-#         f"Loaded your Docker configuration at " f"[{superset_config_docker.__file__}]"
-#     )
-# except ImportError:
-#     logger.info("Using default Docker config...")
+RECAPTCHA_PUBLIC_KEY = os.getenv("RECAPTCHA_PUBLIC_KEY", "")
+RECAPTCHA_PRIVATE_KEY = os.getenv("RECAPTCHA_PRIVATE_KEY", "")
 
 TALISMAN_CONFIG = {
     "content_security_policy": {
@@ -193,3 +128,29 @@ TALISMAN_CONFIG = {
     "force_https": False,
     "session_cookie_secure": False,
 }
+
+
+class CeleryConfig:
+    broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CELERY_DB}"
+    imports = (
+        "superset.sql_lab",
+        "superset.tasks.scheduler",
+        "superset.tasks.thumbnails",
+        "superset.tasks.cache",
+    )
+    result_backend = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
+    worker_prefetch_multiplier = 1
+    task_acks_late = False
+    beat_schedule = {
+        "reports.scheduler": {
+            "task": "reports.scheduler",
+            "schedule": crontab(minute="*", hour="*"),
+        },
+        "reports.prune_log": {
+            "task": "reports.prune_log",
+            "schedule": crontab(minute=10, hour=0),
+        },
+    }
+
+
+CELERY_CONFIG = CeleryConfig
