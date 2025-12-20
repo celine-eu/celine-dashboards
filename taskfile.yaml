@@ -1,43 +1,6 @@
 version: "3"
 
 tasks:
-  setup:
-    desc: "Setup services"
-    cmds:
-      - task: update-keycloak-client-secret
-      - task: update-superset-secret
-      - docker compose down superset && docker compose up -d superset
-
-  ensure-env:
-    cmds:
-      - |
-        if [ ! -f ./config/superset/.env ]; then
-          echo "Creating .env from .env.example..."
-          cp ./config/superset/.env.example ./config/superset/.env
-        fi
-
-  update-keycloak-client-secret:
-    deps: [ensure-env]
-    cmds:
-      - |
-        SECRET=$(cd ../../apps/celine-cli && task cli -- admin keycloak get-secret --client-id oauth2_proxy)
-        PREFIX="KEYCLOAK_CLIENT_SECRET="
-        sed -i "/^${PREFIX}/d" ./config/superset/.env
-        # add carriage return
-        echo "" >> ./config/superset/.env
-        echo "${PREFIX}${SECRET}" >> ./config/superset/.env
-
-  update-superset-secret:
-    deps: [ensure-env]
-    cmds:
-      - |
-        SECRET=$(openssl rand -base64 42)
-        PREFIX="SUPERSET_SECRET_KEY="
-        sed -i "/^${PREFIX}/d" ./config/superset/.env
-        # add carriage return
-        echo "" >> ./config/superset/.env
-        echo "${PREFIX}${SECRET}" >> ./config/superset/.env
-
   start:
     desc: "Start containers"
     cmds:
