@@ -1,16 +1,11 @@
 import pytest
+from flask import Flask
+from flask_login import LoginManager, AnonymousUserMixin
 
 
-class StartResponseRecorder:
-    def __init__(self):
-        self.status = None
-        self.headers = None
+@pytest.fixture(scope="function")
+def app():
+    app = Flask(__name__)
+    app.config["SECRET_KEY"] = "test-secret"
 
-    def __call__(self, status, headers):
-        self.status = status
-        self.headers = dict(headers)
-
-
-@pytest.fixture()
-def start_response():
-    return StartResponseRecorder()
+    yield app

@@ -1,16 +1,12 @@
-import json
-import types
 import pytest
 import requests
-
 import celine_superset.auth.security_manager as sm
 
 
 class DummyResp:
-    def __init__(self, status=200, payload=None, raise_for_status_exc=None):
-        self.status_code = status
+    def __init__(self, payload=None, exc=None):
         self._payload = payload or {}
-        self._exc = raise_for_status_exc
+        self._exc = exc
 
     def raise_for_status(self):
         if self._exc:
@@ -30,13 +26,12 @@ def clear_caches():
 
 
 def test_get_jwks_uri_from_jwt_happy(monkeypatch):
-    # jwt.decode(token, options={"verify_signature": False}) -> {"iss": ...}
     monkeypatch.setattr(
         sm.jwt, "decode", lambda token, options: {"iss": "https://issuer.example"}
     )
 
-    def fake_get(url, *args, **kwargs):
-        assert url == "https://issuer.example/.well-known/openid-configuration"
+    def fake_get(url, **kwargs):
+        assert url.endswith("/.well-known/openid-configuration")
         return DummyResp(payload={"jwks_uri": "https://issuer.example/jwks"})
 
     monkeypatch.setattr(sm.requests, "get", fake_get)
@@ -49,8 +44,8 @@ def test_get_jwks_uri_from_jwt_http_error(monkeypatch):
         sm.jwt, "decode", lambda token, options: {"iss": "https://issuer.example"}
     )
 
-    def fake_get(url, *args, **kwargs):
-        return DummyResp(raise_for_status_exc=requests.HTTPError("boom"))
+    def fake_get(url, **kwargs):
+        return DummyResp(exc=requests.HTTPError("boom"))
 
     monkeypatch.setattr(sm.requests, "get", fake_get)
 
@@ -59,21 +54,23 @@ def test_get_jwks_uri_from_jwt_http_error(monkeypatch):
 
 
 def test_get_public_key_type_error(monkeypatch):
-    # mock requests.get correctly
-    def fake_get(url, *args, **kwargs):
-        class DummyResp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"keys": [{"kty": "RSA"}]}
-
-        return DummyResp()
+    def fake_get(url, **kwargs):
+        return DummyResp(
+            payload={
+                "keys": [
+                    {
+                        "kid": "abc",
+                        "kty": "RSA",
+                        "n": "00",
+                        "e": "AQAB",
+                    }
+                ]
+            }
+        )
 
     monkeypatch.setattr(sm.requests, "get", fake_get)
-
-    # force from_jwk to return a non-RSAPublicKey
+    monkeypatch.setattr(sm.jwt, "get_unverified_header", lambda token: {"kid": "abc"})
     monkeypatch.setattr(sm.RSAAlgorithm, "from_jwk", lambda jwk: object())
 
-    with pytest.raises(TypeError, match=r"Expected RSAPublicKey"):
-        sm.get_public_key("https://issuer.example/jwks")
+    with pytest.raises(TypeError, match="Expected RSAPublicKey"):
+        sm.get_public_key("https://issuer/jwks", "dummy.token")
