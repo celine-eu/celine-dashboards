@@ -1,0 +1,20 @@
+[project]
+name = "jwt-auth"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyjwt>=2.10.1",
+]
+
+[dependency-groups]
+dev = [
+    "jupyter>=1.1.1",
+]
+
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jwt_auth*"]
+exclude = ["tests*"]

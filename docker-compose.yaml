@@ -34,11 +34,11 @@ services:
     # command: ["/app/docker/superset-bootstrap.sh", "app-gunicorn"]
 
     ## DEV
-    # command: ["/app/docker/superset-bootstrap.sh", "app"]
+    command: ["/app/docker/superset-bootstrap.sh", "app"]
 
-    command: ["sleep", "infinity"]
-    tty: true
-    stdin_open: true
+    # command: ["sleep", "infinity"]
+    # tty: true
+    # stdin_open: true
 
     restart: unless-stopped
     depends_on:
@@ -180,3 +180,17 @@ services:
         condition: service_started
       keycloak:
         condition: service_healthy
+
+  jupyter:
+    image: ghcr.io/celine-eu/jupyter:latest
+    build:
+      dockerfile: Dockerfile.jupyter
+    volumes:
+      - ./config/jupyter/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
+      - ./packages/jupyter_jwt_auth:/opt/jwt_auth
+      - ./data/notebooks:/home/jovyan/notebooks
+    restart: unless-stopped
+    networks:
+      - superset_net
+    extra_hosts:
+      - "keycloak.celine.localhost:172.17.0.1"

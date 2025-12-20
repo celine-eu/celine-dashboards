@@ -1,5 +1,5 @@
 {
     "python.analysis.extraPaths": [
-        "packages/celine-superset"
+        "packages/jupyter_jwt_auth/jwt_auth"
     ]
 }

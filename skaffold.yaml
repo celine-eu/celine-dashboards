@@ -18,6 +18,10 @@ build:
       context: .
       docker:
         dockerfile: Dockerfile
+    - image: ghcr.io/celine-eu/jupyter
+      context: .
+      docker:
+        dockerfile: Dockerfile.jupyter
 
 # Disable deployment completely
 manifests:

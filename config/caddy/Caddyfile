@@ -3,10 +3,41 @@
   admin off
 }
 
-http://superset.celine.localhost {
-  reverse_proxy oauth2-proxy:4180
+(auth) {
+    forward_auth oauth2-proxy:4180 {
+        uri /oauth2/auth
+
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-Host {host}
+
+        copy_headers \
+            X-Auth-Request-User \
+            X-Auth-Request-Email \
+            X-Auth-Request-Groups \
+            X-Auth-Request-Access-Token \
+            Authorization
+
+        @unauthenticated status 401
+        handle_response @unauthenticated {
+            redir * http://sso.celine.localhost/oauth2/sign_in?rd={scheme}://{hostport}{uri}
+        }
+    }
 }
 
 http://keycloak.celine.localhost {
-  reverse_proxy keycloak:80
+  reverse_proxy keycloak
+}
+
+http://sso.celine.localhost {
+  reverse_proxy oauth2-proxy:4180
+}
+
+http://superset.celine.localhost {
+    import auth
+    reverse_proxy superset:8088
+}
+
+http://jupyter.celine.localhost {
+    import auth
+    reverse_proxy jupyter:8888
 }
