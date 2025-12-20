@@ -5,6 +5,9 @@
 
 ### Bug Fixes
 
+- Release
+  ([`c75d0b0`](https://github.com/celine-eu/celine-dashboards/commit/c75d0b0d22ee53b8d4b356662256270324dd356d))
+
 - Update action
   ([`739288d`](https://github.com/celine-eu/celine-dashboards/commit/739288d0861d093bf8997c507adb4125d5d86955))
 
