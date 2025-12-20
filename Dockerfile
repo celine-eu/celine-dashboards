@@ -1,18 +1,19 @@
-FROM apache/superset:5.0.0
+FROM apache/superset:6.0.0
 
 USER root
 
 RUN apt-get update && apt-get install -y \
     python3-dev \
-    default-libmysqlclient-dev \
     build-essential \
     pkg-config
 
 RUN cd /app && uv pip install .
 
-COPY ./config/superset /app/docker
+COPY ./packages /packages
+# NOTE: this will install also pg drivers
+RUN uv pip install -e /packages/celine-superset
 
-RUN uv pip install -r /app/docker/requirements-local.txt
+COPY ./config/superset /app/docker
 
 RUN chmod +x /app/docker/superset-bootstrap.sh
 RUN chmod +x /app/docker/superset-setup.sh
