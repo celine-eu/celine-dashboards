@@ -1,7 +1,15 @@
 # CHANGELOG
 
 
-## v0.1.1 (2025-12-20)
+## v0.1.3 (2025-12-20)
+
+### Bug Fixes
+
+- Release
+  ([`f2deeea`](https://github.com/celine-eu/celine-dashboards/commit/f2deeeab554d3b7c50230b6e07118e3d35cb86b6))
+
+
+## v0.1.2 (2025-12-20)
 
 ### Bug Fixes
 
