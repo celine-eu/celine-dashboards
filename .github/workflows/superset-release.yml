@@ -28,7 +28,7 @@ jobs:
           list-files: json
           filters: |
             version:
-              - "services/superset/version.txt"
+              - "version.txt"
 
       # Convert filter result into a simple boolean
       - id: check
