@@ -64,6 +64,13 @@
             "webOrigins": [
                 "+"
             ],
+            "defaultClientScopes": [
+                "profile",
+                "email"
+            ],
+            "optionalClientScopes": [
+                "offline_access"
+            ],
             "standardFlowEnabled": true,
             "implicitFlowEnabled": true,
             "directAccessGrantsEnabled": true,
