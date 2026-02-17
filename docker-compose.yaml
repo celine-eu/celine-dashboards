@@ -115,7 +115,6 @@ services:
       start_period: 30s
 
   jupyter:
-    image: ghcr.io/celine-eu/jupyter:latest
     build:
       dockerfile: Dockerfile.jupyter
     volumes:
