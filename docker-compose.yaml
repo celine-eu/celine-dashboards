@@ -7,7 +7,6 @@ networks:
   superset_net:
 
 x-common: &common
-  image: celine-eu/superset:latest
   env_file:
     - path: ./config/superset/.env
       required: true
