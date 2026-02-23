@@ -42,3 +42,8 @@ tasks:
       - uv run semantic-release -v version --no-vcs-release
       - git push
       - git push --tags
+
+  setup:
+    cmds:
+      - cd packages/celine-superset && uv sync
+      - cd packages/jupyter_jwt_auth && uv sync
