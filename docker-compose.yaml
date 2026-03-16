@@ -18,7 +18,7 @@ x-common: &common
   networks:
     - superset_net
   extra_hosts:
-    - "keycloak.celine.localhost:172.17.0.1"
+    - "keycloak.celine.localhost:host-gateway"
   user: "root"
   volumes:
     - ./config/superset:/app/docker
@@ -125,6 +125,6 @@ services:
     networks:
       - superset_net
     extra_hosts:
-      - "keycloak.celine.localhost:172.17.0.1"
+      - "keycloak.celine.localhost:host-gateway"
     ports:
       - 8888:8888
