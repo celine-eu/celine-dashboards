@@ -71,6 +71,13 @@ ENABLE_JAVASCRIPT_CONTROLS = True
 FEATURE_FLAGS = {"ALERT_REPORTS": True}
 SQLLAB_CTAS_NO_LIMIT = True
 
+HTML_SANITIZATION_SCHEMA_EXTENSIONS = {
+    "attributes": {
+        "*": ["style", "class"],
+    },
+    "tagNames": ["style", "small", "span"],
+}
+
 log_level_text = os.getenv("SUPERSET_LOG_LEVEL", "INFO")
 LOG_LEVEL = getattr(logging, log_level_text.upper(), logging.INFO)
 
@@ -154,3 +161,31 @@ class CeleryConfig:
 
 
 CELERY_CONFIG = CeleryConfig
+
+# Email configuration
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.sendgrid.net")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "2525"))
+SMTP_STARTTLS = True
+SMTP_SSL_SERVER_AUTH = False # If you're using an SMTP server with a valid certificate
+SMTP_SSL = False
+SMTP_USER = os.getenv("SMTP_USER", "your_user")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "your_password")
+SMTP_MAIL_FROM = os.getenv("SMTP_MAIL_FROM", "noreply@youremail.com")
+EMAIL_REPORTS_SUBJECT_PREFIX = "[CELINE] " # optional - overwrites default value in config.py of "[Report] "
+
+WEBDRIVER_TYPE = "chrome"
+WEBDRIVER_OPTION_ARGS = [
+    "--force-device-scale-factor=2.0",
+    "--high-dpi-support=2.0",
+    "--headless",
+    "--disable-gpu",
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-extensions",
+]
+
+# This is for internal use (pod-to-pod within K8s or docker-compose)
+WEBDRIVER_BASEURL = os.getenv("WEBDRIVER_BASEURL", "http://superset:8088")
+# This is the link sent to the recipient in email reports
+WEBDRIVER_BASEURL_USER_FRIENDLY = os.getenv("WEBDRIVER_BASEURL_USER_FRIENDLY", "http://localhost:8088")
