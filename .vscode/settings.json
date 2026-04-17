@@ -1,5 +1,15 @@
 {
+    "python.defaultInterpreterPath": "packages/celine-superset/.venv/bin/python",
     "python.analysis.extraPaths": [
-        "packages/jupyter_jwt_auth/jwt_auth"
+        "packages/jupyter_jwt_auth/jwt_auth",
+        "packages/celine-superset",
+        "packages/celine-superset-cli",
+    ],
+    "python-envs.pythonProjects": [
+        {
+            "path": ".",
+            "envManager": "ms-python.python:venv",
+            "packageManager": "ms-python.python:pip"
+        }
     ]
 }

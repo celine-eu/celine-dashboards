@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
+cd /app && uv pip install --reinstall /packages/celine-superset
+
 case "${1}" in
   worker)
     echo "Starting Celery worker..."

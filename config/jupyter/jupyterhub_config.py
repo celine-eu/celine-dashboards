@@ -7,5 +7,5 @@ c.ServerApp.password = ""  # no password
 c.ServerApp.trust_xheaders = True
 
 # custom authorizer
-c.ServerApp.authorizer_class = "jwt_auth.jwt_authorizer.JWTAuthorizer"
+c.ServerApp.authorizer_class = "celine.jupyter.jwt_authorizer.JWTAuthorizer"
 c.ServerApp.root_dir = "/home/jovyan/notebooks"

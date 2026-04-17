@@ -1,5 +1,4 @@
 volumes:
-  db_data:
   redis:
   superset_home:
 
@@ -9,7 +8,7 @@ networks:
 x-common: &common
   env_file:
     - path: ./config/superset/.env
-      required: true
+      required: false
     - path: ./config/superset/.env-local
       required: false
   build:
@@ -18,8 +17,13 @@ x-common: &common
   networks:
     - superset_net
   extra_hosts:
+    - "host-gw:host-gateway"
+    - "host.docker.internal:host-gateway"
     - "keycloak.celine.localhost:host-gateway"
+    - "sso.celine.localhost:host-gateway"
   user: "root"
+  environment:
+    PYTHONPATH: /packages/celine-superset/src:/app/pythonpath:/app/docker/pythonpath_dev
   volumes:
     - ./config/superset:/app/docker
     - ./packages:/packages
@@ -50,8 +54,8 @@ services:
     <<: *common
     command: ["/app/docker/superset-setup.sh"]
     depends_on:
-      db:
-        condition: service_started
+      init-db:
+        condition: service_completed_successfully
       redis:
         condition: service_started
     healthcheck:
@@ -81,22 +85,21 @@ services:
     healthcheck:
       disable: true
 
-  db:
+  init-db:
     image: postgres:17.4
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-    volumes:
-      - db_data:/var/lib/postgresql/data
-      - ./config/postgres/init:/docker-entrypoint-initdb.d:ro
     networks:
       - superset_net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - path: ./config/superset/.env
+        required: false
+      - path: ./config/superset/.env-local
+        required: false
+    volumes:
+      - ./config/postgres/init-db.sh:/init-db.sh:ro
+    command: ["bash", "/init-db.sh"]
+    restart: "no"
 
   redis:
     image: redis:7.2-bookworm

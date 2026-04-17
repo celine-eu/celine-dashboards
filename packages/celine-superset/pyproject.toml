@@ -1,11 +1,11 @@
 [project]
 name = "celine-superset"
 version = "0.1.0"
-description = "Add your description here"
+description = "Superset SSO plugin for CELINE — KC JWT auth + org-aware role mapping"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "authlib>=1.6.6",
+    "cryptography>=44.0.0",
     "psycopg2-binary>=2.9.11",
     "pyjwt>=2.10.1",
     "requests>=2.32.5",
@@ -14,6 +14,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "apache-superset==6.0.0",
+    "celery>=5.6.0",
+    "flask-appbuilder>=5.0.2",
+    "flask-caching>=2.3.1",
     "pytest>=9.0.2",
     "pytest-mock>=3.15.1",
     "python-semantic-release>=9.21.0",
@@ -22,28 +25,23 @@ dev = [
 [tool.uv]
 package = true
 
-[tool.setuptools]
-
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["celine_superset*"]
+where = ["src"]
+namespaces = true
+include = ["celine.superset*"]
 exclude = ["tests"]
-
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-
 build_command = """
     uv lock --upgrade-package "$PACKAGE_NAME"
     git add uv.lock
     uv build
 """
-
 branch = "main"
 changelog_file = "CHANGELOG.md"
 tag_format = "v{version}"
 commit_parser = "conventional"
-
 upload_to_release = false
 upload_to_pypi = false
 commit_version_number = false
@@ -53,3 +51,6 @@ minor_tags = ["feat"]
 patch_tags = ["fix", "perf", "up"]
 parse_squash_commits = true
 ignore_merge_commits = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

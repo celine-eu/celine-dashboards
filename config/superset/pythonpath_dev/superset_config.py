@@ -22,21 +22,18 @@
 #
 import logging
 import os
-import sys
 
 from celery.schedules import crontab
 from flask_caching.backends.filesystemcache import FileSystemCache
 from flask_appbuilder.security.manager import AUTH_REMOTE_USER
 
 
-from celine_superset.auth.security_manager import (
-    OAuth2ProxySecurityManager,
-)
-from celine_superset.auth.roles import DEFAULT_ROLE
+from celine.superset.plugin.security_manager import OAuth2ProxySecurityManager
+from celine.superset.auth.groups import DEFAULT_ROLE
 
 DB_DIALECT = os.getenv("DB_DIALECT", "postgres")
-DB_HOST = os.getenv("DB_HOST", "postgres")
-DB_PORT = os.getenv("DB_PORT", "5432")
+DB_HOST = os.getenv("DB_HOST", "host.docker.internal")
+DB_PORT = os.getenv("DB_PORT", "15432")
 DB_USER = os.getenv("DB_USER", "superset")
 DB_PASS = os.getenv("DB_PASS", "superset")
 DB_NAME = os.getenv("DB_NAME", "superset")
@@ -166,12 +163,14 @@ CELERY_CONFIG = CeleryConfig
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.sendgrid.net")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "2525"))
 SMTP_STARTTLS = True
-SMTP_SSL_SERVER_AUTH = False # If you're using an SMTP server with a valid certificate
+SMTP_SSL_SERVER_AUTH = False  # If you're using an SMTP server with a valid certificate
 SMTP_SSL = False
 SMTP_USER = os.getenv("SMTP_USER", "your_user")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "your_password")
 SMTP_MAIL_FROM = os.getenv("SMTP_MAIL_FROM", "noreply@youremail.com")
-EMAIL_REPORTS_SUBJECT_PREFIX = "[CELINE] " # optional - overwrites default value in config.py of "[Report] "
+EMAIL_REPORTS_SUBJECT_PREFIX = (
+    "[CELINE] "  # optional - overwrites default value in config.py of "[Report] "
+)
 
 WEBDRIVER_TYPE = "chrome"
 WEBDRIVER_OPTION_ARGS = [
@@ -188,4 +187,6 @@ WEBDRIVER_OPTION_ARGS = [
 # This is for internal use (pod-to-pod within K8s or docker-compose)
 WEBDRIVER_BASEURL = os.getenv("WEBDRIVER_BASEURL", "http://superset:8088")
 # This is the link sent to the recipient in email reports
-WEBDRIVER_BASEURL_USER_FRIENDLY = os.getenv("WEBDRIVER_BASEURL_USER_FRIENDLY", "http://localhost:8088")
+WEBDRIVER_BASEURL_USER_FRIENDLY = os.getenv(
+    "WEBDRIVER_BASEURL_USER_FRIENDLY", "http://localhost:8088"
+)

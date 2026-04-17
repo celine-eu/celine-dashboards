@@ -1,7 +1,7 @@
 [project]
-name = "jwt-auth"
+name = "celine-jupyter"
 version = "0.1.0"
-description = "Add your description here"
+description = "Jupyter SSO plugin for CELINE — KC JWT auth"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -11,10 +11,38 @@ dependencies = [
 [dependency-groups]
 dev = [
     "jupyter>=1.1.1",
+    "python-semantic-release>=9.21.0",
 ]
 
+[tool.uv]
+package = true
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["jwt_auth*"]
+where = ["src"]
+namespaces = true
+include = ["celine.jupyter*"]
 exclude = ["tests*"]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+build_command = """
+    uv lock --upgrade-package "$PACKAGE_NAME"
+    git add uv.lock
+    uv build
+"""
+branch = "main"
+changelog_file = "CHANGELOG.md"
+tag_format = "v{version}"
+commit_parser = "conventional"
+upload_to_release = false
+upload_to_pypi = false
+commit_version_number = false
+
+[tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf", "up"]
+parse_squash_commits = true
+ignore_merge_commits = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y \
 
 RUN cd /app && uv pip install .
 
-COPY ./packages /packages
+COPY ./packages/celine-superset /packages/celine-superset
 # NOTE: this will install also pg drivers
-RUN uv pip install -e /packages/celine-superset
+RUN cd /app && uv pip install /packages/celine-superset
 
 COPY ./config/superset /app/docker
 
@@ -25,6 +25,8 @@ ENV SUPERSET_LOAD_EXAMPLES=no
 ENV CYPRESS_CONFIG=false
 
 USER root
+
+ENV PYTHONUNBUFFERED=1
 
 # Set environment variable for Playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers

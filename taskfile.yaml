@@ -1,6 +1,23 @@
 version: "3"
 
 tasks:
+  setup:
+    cmds:
+      - mkdir -p config/superset
+      - |
+        ENV_FILE="config/superset/.env"
+        touch "$ENV_FILE"
+
+        if grep -q '^SUPERSET_SECRET_KEY=' "$ENV_FILE"; then
+          echo "SUPERSET_SECRET_KEY already present in $ENV_FILE, skipping"
+        else
+          echo "SUPERSET_SECRET_KEY=$(openssl rand -base64 42)" >> "$ENV_FILE"
+          echo "SUPERSET_SECRET_KEY written to $ENV_FILE"
+        fi
+      - cd packages/celine-superset && uv sync
+      - cd packages/celine-superset-cli && uv sync
+      - cd packages/jupyter_jwt_auth && uv sync
+
   start:
     desc: "Start containers"
     cmds:
@@ -33,17 +50,24 @@ tasks:
     cmds:
       - docker compose ps
 
-  dump-source:
-    cmds:
-      - python3 scripts/dump_source.py
-
   release:
     cmds:
       - uv run semantic-release -v version --no-vcs-release
       - git push
       - git push --tags
 
-  setup:
+  test:
+    desc: "Run tests for all packages"
     cmds:
-      - cd packages/celine-superset && uv sync
-      - cd packages/jupyter_jwt_auth && uv sync
+      - cd packages/celine-superset && uv run pytest
+      - cd packages/celine-superset-cli && uv run pytest
+
+  test:auth:
+    desc: "Run celine-superset auth tests only (no superset dep needed)"
+    cmds:
+      - cd packages/celine-superset && uv run pytest tests/auth/ -v
+
+  test:cli:
+    desc: "Run CLI tests"
+    cmds:
+      - cd packages/celine-superset-cli && uv run pytest -v
