@@ -11,6 +11,7 @@ Auth flow:
   After the first response the Flask session cookie is cached in the httpx
   Client for the lifetime of the CLI invocation.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,6 +40,13 @@ class Settings(BaseSettings):
     kc_client_secret: str = "celine-cli"
 
     verify_ssl: bool = True
+
+    # Bootstrap defaults — dev PostgreSQL via docker-internal hostname
+    bootstrap_db_name: str = "celine_dev"
+    bootstrap_db_uri: str = (
+        "postgresql+psycopg2://postgres:securepassword123@host.docker.internal:15432/datasets"
+    )
+    bootstrap_db_schema: str = "ds_dev_gold"
 
     @field_validator("url", "kc_issuer_url")
     @classmethod

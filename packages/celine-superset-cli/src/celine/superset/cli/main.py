@@ -39,6 +39,7 @@ from rich.console import Console
 from celine.superset.cli.client import KcTokenProvider, SupersetClient
 from celine.superset.cli.config import Settings, get_settings
 from celine.superset.cli.resources import charts, dashboards, datasets
+from celine.superset.cli.resources.bootstrap import bootstrap
 
 app = typer.Typer(
     name="celine-superset",
@@ -49,6 +50,7 @@ app = typer.Typer(
 app.add_typer(dashboards.app, name="dashboard")
 app.add_typer(charts.app, name="chart")
 app.add_typer(datasets.app, name="dataset")
+app.command("bootstrap")(bootstrap)
 
 _console = Console()
 

@@ -20,9 +20,22 @@ import httpx
 
 from celine.superset.cli.config import Settings
 from celine.superset.cli.openapi.superset_client import AuthenticatedClient
+from celine.superset.cli.openapi.superset_client.api.database import (
+    get_api_v1_database,
+    get_api_v1_database_pk_tables,
+    post_api_v1_database,
+)
+from celine.superset.cli.openapi.superset_client.api.datasets import (
+    post_api_v1_dataset,
+)
+from celine.superset.cli.openapi.superset_client.models.get_api_v1_database_response_200 import GetApiV1DatabaseResponse200
+from celine.superset.cli.openapi.superset_client.models.post_api_v1_database_response_201 import PostApiV1DatabaseResponse201
+from celine.superset.cli.openapi.superset_client.models.post_api_v1_dataset_response_201 import PostApiV1DatasetResponse201
 from celine.superset.cli.openapi.superset_client.api.security import (
     get_api_v1_security_csrf_token,
 )
+from celine.superset.cli.openapi.superset_client.models.database_rest_api_post import DatabaseRestApiPost
+from celine.superset.cli.openapi.superset_client.models.dataset_rest_api_post import DatasetRestApiPost
 from celine.superset.cli.openapi.superset_client.models.post_api_v1_chart_import_body import (
     PostApiV1ChartImportBody,
 )
@@ -160,6 +173,74 @@ class SupersetClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    # ------------------------------------------------------------------
+    # Bootstrap helpers
+    # ------------------------------------------------------------------
+
+    def ensure_database(self, db_name: str, sqlalchemy_uri: str) -> int:
+        """Return existing DB ID matched by name, or create it and return the new ID."""
+        api_client = self._get_api_client()
+        list_resp = get_api_v1_database.sync_detailed(client=api_client)
+        if isinstance(list_resp.parsed, GetApiV1DatabaseResponse200) and not isinstance(list_resp.parsed.result, Unset):
+            for db in list_resp.parsed.result:
+                if db.database_name == db_name and not isinstance(db.id, Unset):
+                    return db.id
+        self._ensure_csrf()
+        body = DatabaseRestApiPost(
+            database_name=db_name,
+            sqlalchemy_uri=sqlalchemy_uri,
+            expose_in_sqllab=True,
+        )
+        resp = post_api_v1_database.sync_detailed(client=api_client, body=body)
+        if not isinstance(resp.parsed, PostApiV1DatabaseResponse201):
+            raise RuntimeError(
+                f"Failed to create database {db_name!r}: HTTP {resp.status_code} — {resp.content.decode()}"
+            )
+        if isinstance(resp.parsed.id, Unset):
+            raise RuntimeError(f"No id in create-database response for {db_name!r}")
+        return int(resp.parsed.id)
+
+    def list_schema_tables(self, db_id: int, schema: str) -> list[str]:
+        """Return table names visible in the given schema.
+
+        schema_name is not in the OpenAPI spec so we pass it via the underlying
+        authenticated httpx session to keep the same auth/session state.
+        """
+        api_client = self._get_api_client()
+        kwargs = get_api_v1_database_pk_tables._get_kwargs(pk=db_id)
+        kwargs.setdefault("params", {})["q"] = f"(schema_name:{schema},force:!f)"
+        raw = api_client.get_httpx_client().request(**kwargs)
+        if raw.is_error:
+            raise RuntimeError(
+                f"list_schema_tables failed: HTTP {raw.status_code} — {raw.text}"
+            )
+        # Use raw JSON: generated from_dict crashes on null `extra` fields
+        return [r["value"] for r in raw.json().get("result", []) if r.get("value")]
+
+    def list_schema_datasets(self, schema: str) -> set[str]:
+        """Return table names that already have a dataset registered in the given schema."""
+        http = self._get_api_client().get_httpx_client()
+        resp = http.get("/api/v1/dataset/", params={"q": "(page_size:1000)"})
+        if resp.is_error:
+            raise RuntimeError(f"list_schema_datasets failed: HTTP {resp.status_code} — {resp.text}")
+        # Use raw JSON: generated from_dict is fragile on certain field shapes
+        return {r["table_name"] for r in resp.json().get("result", []) if r.get("schema") == schema}
+
+    def create_dataset(self, db_id: int, schema: str, table: str) -> int:
+        """Create a dataset for a table and return its Superset ID."""
+        self._ensure_csrf()
+        api_client = self._get_api_client()
+        body = DatasetRestApiPost(database=db_id, schema=schema, table_name=table)
+        resp = post_api_v1_dataset.sync_detailed(client=api_client, body=body)
+        if resp.status_code != 201 or not isinstance(resp.parsed, PostApiV1DatasetResponse201):
+            raise RuntimeError(
+                f"Failed to create dataset {schema}.{table}: HTTP {resp.status_code} — {resp.content.decode()}"
+            )
+        created = resp.parsed
+        if isinstance(created.id, Unset):
+            raise RuntimeError(f"No id in create-dataset response for {schema}.{table}")
+        return int(created.id)
 
     def __enter__(self):
         return self
