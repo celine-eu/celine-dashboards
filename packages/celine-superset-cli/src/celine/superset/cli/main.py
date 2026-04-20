@@ -310,6 +310,16 @@ _LEVEL_TO_BASE: dict[str, str] = {
 }
 
 
+# PVMs that grant cross-org access — must be stripped from org:<slug>:* roles.
+# Realm-level celine:* roles keep them (all_datasource_access() guards via role name check).
+_ORG_ROLE_STRIPPED_PVMS = frozenset({
+    "all_datasource_access",  # bypass all tables globally
+    "all_database_access",    # bypass via can_access_all_databases() → can_access_all_datasources()
+    "datasource_access",       # bypass specific table (per-table PVM copied from Alpha)
+    "schema_access",           # bypass all tables in a schema
+})
+
+
 def _sync_celine_roles_and_org_permissions(
     client,
     org_slugs: list[str],
@@ -319,6 +329,9 @@ def _sync_celine_roles_and_org_permissions(
 
     Idempotent: celine:* roles that already have permissions are left untouched so
     that manually-tuned permission sets survive re-runs.
+
+    org:<slug>:* roles have all_datasource_access / all_database_access stripped so
+    Superset's built-in bypass paths don't circumvent the org check.
     """
     all_roles = {r["name"]: r["id"] for r in client.list_roles()}
     gamma_id = all_roles.get("Gamma")
@@ -329,6 +342,13 @@ def _sync_celine_roles_and_org_permissions(
 
     seed_perms = {"Gamma": client.get_role_permission_ids(gamma_id),
                   "Alpha": client.get_role_permission_ids(alpha_id)}
+
+    # Build a filtered copy of Alpha permissions safe for org roles
+    alpha_perms_full = client.get_role_permissions_full(alpha_id)
+    alpha_perms_for_org = [
+        p["id"] for p in alpha_perms_full
+        if p.get("permission_name") not in _ORG_ROLE_STRIPPED_PVMS
+    ]
 
     celine_perm_ids: dict[str, list[int]] = {}
     for role_name, (seed_role, desc) in _CELINE_BASE_ROLES.items():
@@ -358,9 +378,13 @@ def _sync_celine_roles_and_org_permissions(
             rid = all_roles_fresh.get(role_name)
             if rid is None:
                 continue
-            perm_ids = celine_perm_ids[base_role]
+            # viewers seeded from Gamma (no bypass PVMs); others from filtered Alpha
+            if level == "viewers":
+                perm_ids = celine_perm_ids[base_role]
+            else:
+                perm_ids = alpha_perms_for_org
             if dry_run:
-                _console.print(f"    [dim]dry-run[/dim]  {role_name}  ← {len(perm_ids)} pvm(s) from {base_role}")
+                _console.print(f"    [dim]dry-run[/dim]  {role_name}  ← {len(perm_ids)} pvm(s) from {base_role} (stripped)")
             else:
                 client.set_role_permissions(rid, perm_ids)
                 _console.print(f"    [dim]propagated[/dim]  {role_name}  {len(perm_ids)} pvm(s)")
@@ -456,18 +480,30 @@ def governance_sync(
         _console.print("[yellow]No ownership blocks found in matched sources.[/yellow]")
         raise typer.Exit(0)
 
-    # 4. Load owners registry for label resolution
+    # 4. Load owners registry for alias → canonical slug resolution
     registry = OwnersRegistry([])
     if owners_paths:
-        for op in expand_globs(owners_paths):
+        matched = expand_globs(owners_paths)
+        if not matched:
+            _console.print(f"[red]--owners path(s) matched no files: {owners_paths}[/red]")
+            raise typer.Exit(1)
+        for op in matched:
             try:
                 registry = load_owners_yaml(_Path(op))
                 _console.print(f"  [dim]owners[/dim]  {op}")
                 break
             except Exception as exc:
-                _console.print(f"  [yellow]warn[/yellow] could not load {op}: {exc}")
+                _console.print(f"  [red]error[/red] could not load {op}: {exc}")
+                raise typer.Exit(1)
 
     # 5. Sync groups + four org-level roles per owner
+    # Only owners with organization.create: true in the owners registry get Superset groups/roles.
+    # Governance aliases are resolved to their canonical KC org slug (entry.id).
+    # e.g. governance alias "rec" → owners.yaml id "example_rec" → group/role "org:example_rec:*"
+    def _canonical_slug(alias: str) -> str:
+        entry = registry.by_id(alias)
+        return entry.id if entry else alias
+
     _console.print(
         f"\n{'[dim][dry-run][/dim] ' if dry_run else ''}"
         f"[bold]Syncing [cyan]{len(owner_sources)}[/cyan] owner(s)[/bold]"
@@ -477,41 +513,43 @@ def governance_sync(
 
     for alias in sorted(owner_sources):
         entry = registry.by_id(alias)
-        label = entry.name if entry else None
-        description = entry.url if entry else None
-        is_open_only = alias not in owner_has_restricted
+        if entry is not None and not entry.has_kc_org:
+            # Registry explicitly marks this owner as having no KC org → skip
+            _console.print(f"  [dim]skip[/dim]  {alias}  (no KC organization)")
+            continue
 
+        # Use registry primary id as canonical KC org slug when available
+        slug = entry.id if entry is not None else alias
+        label = entry.name if entry is not None else None
+        description = entry.url if entry is not None else None
+        if entry is None and owners_paths:
+            _console.print(f"  [yellow]warn[/yellow]  {alias}  not in owners registry — using alias as slug")
+
+        role_names = [f"org:{slug}:{lvl}" for lvl in _ORG_LEVELS]
+        alias_tag = f"  [dim](alias: {alias})[/dim]" if slug != alias else ""
         if dry_run:
-            if is_open_only:
-                _console.print(
-                    f"  [dim]dry-run[/dim]  [dim]{alias}[/dim]  (open-only — no roles)"
-                    + (f"  ({label})" if label else "")
-                )
-            else:
-                role_names = [f"org:{alias}:{lvl}" for lvl in _ORG_LEVELS]
-                _console.print(
-                    f"  [dim]dry-run[/dim]  group=[bold]{alias}[/bold]"
-                    f"  roles={role_names}"
-                    + (f"  ({label})" if label else "")
-                    + f"  ← {len(owner_sources[alias])} source(s)"
-                )
+            _console.print(
+                f"  [dim]dry-run[/dim]  group=[bold]{slug}[/bold]"
+                f"  roles={role_names}"
+                + (f"  ({label})" if label else "")
+                + f"  ← {len(owner_sources[alias])} source(s)"
+                + alias_tag
+            )
         else:
-            if is_open_only:
-                _console.print(f"  [dim]skip roles[/dim]  [bold]{alias}[/bold]  (open-only)")
-                continue
-            gid, g_new = client.ensure_group(alias, label=label, description=description)
+            gid, g_new = client.ensure_group(slug, label=label, description=description)
             level_ids: list[int] = []
             for level in _ORG_LEVELS:
-                rid, r_new = client.ensure_role(f"org:{alias}:{level}")
+                rid, r_new = client.ensure_role(f"org:{slug}:{level}")
                 level_ids.append(rid)
                 if r_new:
                     roles_created += 1
             client.update_group_roles(gid, level_ids)
             g_tag = "[green]created[/green]" if g_new else "[dim]exists [/dim]"
             _console.print(
-                f"  group {g_tag} [bold]{alias}[/bold] id={gid}"
-                f"  roles={[f'org:{alias}:{lvl}' for lvl in _ORG_LEVELS]}"
+                f"  group {g_tag} [bold]{slug}[/bold] id={gid}"
+                f"  roles={role_names}"
                 + (f"  ({label})" if label else "")
+                + alias_tag
             )
             if g_new:
                 groups_created += 1
@@ -519,9 +557,9 @@ def governance_sync(
     # 6. Remove stale org:* roles not in the current managed set
     _VALID_ORG_LEVELS = frozenset(_ORG_LEVELS)
     expected_org_roles: set[str] = {
-        f"org:{alias}:{lvl}"
+        f"org:{_canonical_slug(alias)}:{lvl}"
         for alias in owner_sources
-        if alias in owner_has_restricted
+        if not ((e := registry.by_id(alias)) is not None and not e.has_kc_org)
         for lvl in _ORG_LEVELS
     }
 
@@ -601,9 +639,13 @@ def governance_sync(
             continue
 
         for owner in rule.ownership:
+            owner_entry = registry.by_id(owner.name)
+            if owner_entry is not None and not owner_entry.has_kc_org:
+                continue  # explicitly no KC org — cannot restrict by org membership
+            canonical = owner_entry.id if owner_entry is not None else owner.name
             slugs = dataset_org_slugs.setdefault(dataset_id, [])
-            if owner.name not in slugs:
-                slugs.append(owner.name)
+            if canonical not in slugs:
+                slugs.append(canonical)
 
     extra_updated = 0
     for ds_id, org_slugs in dataset_org_slugs.items():
@@ -617,7 +659,11 @@ def governance_sync(
         _console.print(f"  [yellow]warn:[/yellow] {unmatched_count} source(s) had no matching dataset.")
 
     # 8. Seed celine:* base roles and propagate to all org roles created above
-    managed_org_slugs = sorted(a for a in owner_sources if a in owner_has_restricted)
+    managed_org_slugs = sorted({
+        _canonical_slug(a)
+        for a in owner_sources
+        if not ((e := registry.by_id(a)) is not None and not e.has_kc_org)
+    })
     _console.print(f"\n[bold]Seeding celine:* base roles and propagating to org roles…[/bold]")
     _sync_celine_roles_and_org_permissions(client, managed_org_slugs, dry_run=dry_run)
 

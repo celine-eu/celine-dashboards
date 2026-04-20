@@ -379,13 +379,17 @@ class SupersetClient:
     # Governance: role permissions
     # ------------------------------------------------------------------
 
-    def get_role_permission_ids(self, role_id: int) -> list[int]:
-        """Return PVM ids assigned to a role."""
+    def get_role_permissions_full(self, role_id: int) -> list[dict]:
+        """Return full PVM objects [{id, permission_name, view_menu_name}] for a role."""
         http = self._get_api_client().get_httpx_client()
         resp = http.get(f"/api/v1/security/roles/{role_id}/permissions/")
         if resp.is_error:
             raise RuntimeError(f"get_role_permissions {role_id} failed: HTTP {resp.status_code} — {resp.text}")
-        return [item["id"] for item in resp.json().get("result", [])]
+        return resp.json().get("result", [])
+
+    def get_role_permission_ids(self, role_id: int) -> list[int]:
+        """Return PVM ids assigned to a role."""
+        return [p["id"] for p in self.get_role_permissions_full(role_id)]
 
     def set_role_permissions(self, role_id: int, perm_ids: list[int]) -> None:
         """Replace the permission set on a role."""

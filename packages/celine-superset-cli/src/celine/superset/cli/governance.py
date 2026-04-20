@@ -70,6 +70,12 @@ def load_governance_file(path: Path) -> GovernanceConfig:
 # Owners models
 # ---------------------------------------------------------------------------
 
+class OwnerOrganizationConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    create: bool = False
+    role: Optional[str] = None
+
+
 class OwnerEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -79,6 +85,11 @@ class OwnerEntry(BaseModel):
     did: Optional[str] = None
     url: Optional[str] = None
     aliases: List[str] = Field(default_factory=list)
+    organization: Optional[OwnerOrganizationConfig] = None
+
+    @property
+    def has_kc_org(self) -> bool:
+        return self.organization is not None and self.organization.create
 
 
 class OwnersRegistry:

@@ -6,9 +6,8 @@ tasks:
     cmds:
       - |
         uv run celine-superset bootstrap
-        uv run celine-superset governance setup-permissions
-        celine-superset governance sync \
+        uv run celine-superset governance sync \
           --path '../../../celine-pipelines/**/governance.yaml' \
           --path '../../../../../demo3/**/governance.yaml' \
-          --owners '../../../../dataset-api/owners.local.yaml' \
+          --owners '../../../dataset-api/owners.local.yaml' \
           --filter 'ds_dev_gold.*'
