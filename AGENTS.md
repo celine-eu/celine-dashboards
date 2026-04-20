@@ -1,6 +1,6 @@
 ## Scope
 
-This repository collects the tooling and dashboards for the CELINE project
+This repository collects the tooling and dashboards for the CELINE project, `packages/**` may have an AGENTS.md to load too depending on the task.
 
 ## Structure
 

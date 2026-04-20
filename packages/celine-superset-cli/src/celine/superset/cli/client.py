@@ -12,6 +12,7 @@ Auth flow:
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from io import BytesIO
@@ -20,31 +21,29 @@ import httpx
 
 from celine.superset.cli.config import Settings
 from celine.superset.cli.openapi.superset_client import AuthenticatedClient
+from celine.superset.cli.openapi.superset_client.api.charts import get_api_v1_chart_export, get_api_v1_chart
+from celine.superset.cli.openapi.superset_client.api.dashboards import get_api_v1_dashboard_export, get_api_v1_dashboard
+from celine.superset.cli.openapi.superset_client.api.datasets import (
+    get_api_v1_dataset_export,
+    get_api_v1_dataset,
+    post_api_v1_dataset,
+)
+from celine.superset.cli.openapi.superset_client.api.importexport import post_api_v1_assets_import
+from celine.superset.cli.openapi.superset_client.models.post_api_v1_assets_import_body import PostApiV1AssetsImportBody
+from celine.superset.cli.openapi.superset_client.models.post_api_v1_assets_import_response_200 import PostApiV1AssetsImportResponse200
 from celine.superset.cli.openapi.superset_client.api.database import (
     get_api_v1_database,
     get_api_v1_database_pk_tables,
     post_api_v1_database,
 )
-from celine.superset.cli.openapi.superset_client.api.datasets import (
-    post_api_v1_dataset,
+from celine.superset.cli.openapi.superset_client.api.security import (
+    get_api_v1_security_csrf_token,
 )
 from celine.superset.cli.openapi.superset_client.models.get_api_v1_database_response_200 import GetApiV1DatabaseResponse200
 from celine.superset.cli.openapi.superset_client.models.post_api_v1_database_response_201 import PostApiV1DatabaseResponse201
 from celine.superset.cli.openapi.superset_client.models.post_api_v1_dataset_response_201 import PostApiV1DatasetResponse201
-from celine.superset.cli.openapi.superset_client.api.security import (
-    get_api_v1_security_csrf_token,
-)
 from celine.superset.cli.openapi.superset_client.models.database_rest_api_post import DatabaseRestApiPost
 from celine.superset.cli.openapi.superset_client.models.dataset_rest_api_post import DatasetRestApiPost
-from celine.superset.cli.openapi.superset_client.models.post_api_v1_chart_import_body import (
-    PostApiV1ChartImportBody,
-)
-from celine.superset.cli.openapi.superset_client.models.post_api_v1_dashboard_import_body import (
-    PostApiV1DashboardImportBody,
-)
-from celine.superset.cli.openapi.superset_client.models.post_api_v1_dataset_import_body import (
-    PostApiV1DatasetImportBody,
-)
 from celine.superset.cli.openapi.superset_client.types import File, Unset
 
 
@@ -131,9 +130,15 @@ class SupersetClient:
     # ------------------------------------------------------------------
 
     def list_ids(self, resource: str) -> list[dict]:
-        http = self._get_api_client().get_httpx_client()
-        resp = http.get(f"/api/v1/{resource}/", params={"q": "(page_size:200)"})
-        resp.raise_for_status()
+        api_client = self._get_api_client()
+        list_module = _list_module(resource)
+        kwargs = list_module._get_kwargs()
+        kwargs.setdefault("params", {})["q"] = "(page_size:200)"
+        raw = api_client.get_httpx_client().request(**kwargs)
+        resp = list_module._build_response(client=api_client, response=raw)
+        if raw.is_error:
+            msg = getattr(resp.parsed, "message", raw.text)
+            raise RuntimeError(f"list {resource} failed: HTTP {resp.status_code} — {msg}")
         return [
             {
                 "id": r["id"],
@@ -143,7 +148,7 @@ class SupersetClient:
                     or r.get("table_name", "")
                 ),
             }
-            for r in resp.json().get("result", [])
+            for r in raw.json().get("result", [])
         ]
 
     # ------------------------------------------------------------------
@@ -151,28 +156,38 @@ class SupersetClient:
     # ------------------------------------------------------------------
 
     def export(self, resource: str, ids: list[int]) -> bytes:
-        http = self._get_api_client().get_httpx_client()
-        params = [("q", f"ids:[{','.join(str(i) for i in ids)}]")]
-        resp = http.get(f"/api/v1/{resource}/export/", params=params)
-        resp.raise_for_status()
-        return resp.content
+        # Superset export endpoint uses Rison array syntax: !(1,2,3)
+        # The `q` param is not in the OpenAPI spec, so we inject it manually
+        # on top of the generated _get_kwargs() infrastructure.
+        api_client = self._get_api_client()
+        module = _export_module(resource)
+        kwargs = module._get_kwargs()
+        kwargs.setdefault("params", {})["q"] = f"!({','.join(str(i) for i in ids)})"
+        raw = api_client.get_httpx_client().request(**kwargs)
+        resp = module._build_response(client=api_client, response=raw)
+        if raw.is_error:
+            msg = getattr(resp.parsed, "message", raw.text)
+            raise RuntimeError(f"export {resource} failed: HTTP {resp.status_code} — {msg}")
+        return raw.content
 
     # ------------------------------------------------------------------
-    # Import (ZIP bundle)
+    # Import (ZIP bundle) — type-agnostic assets endpoint
     # ------------------------------------------------------------------
 
-    def import_zip(
-        self, resource: str, zip_bytes: bytes, *, overwrite: bool = True
-    ) -> dict:
+    def import_assets(self, zip_bytes: bytes, passwords: dict[str, str] | None = None) -> str:
+        """Import any Superset asset bundle. passwords keys are ZIP-relative DB paths."""
         self._ensure_csrf()
-        http = self._get_api_client().get_httpx_client()
-        body = _build_import_body(resource, zip_bytes, overwrite)
-        resp = http.post(
-            f"/api/v1/{resource}/import/",
-            files=body.to_multipart(),
+        api_client = self._get_api_client()
+        file = File(payload=BytesIO(zip_bytes), file_name="bundle.zip", mime_type="application/zip")
+        body = PostApiV1AssetsImportBody(
+            bundle=file,
+            passwords=json.dumps(passwords) if passwords else UNSET,
         )
-        resp.raise_for_status()
-        return resp.json()
+        resp = post_api_v1_assets_import.sync_detailed(client=api_client, body=body)
+        if not isinstance(resp.parsed, PostApiV1AssetsImportResponse200):
+            msg = getattr(resp.parsed, "message", resp.content.decode())
+            raise RuntimeError(f"import assets failed: HTTP {resp.status_code} — {msg}")
+        return resp.parsed.message if not isinstance(resp.parsed.message, Unset) else "ok"
 
     # ------------------------------------------------------------------
     # Bootstrap helpers
@@ -242,6 +257,147 @@ class SupersetClient:
             raise RuntimeError(f"No id in create-dataset response for {schema}.{table}")
         return int(created.id)
 
+    # ------------------------------------------------------------------
+    # Governance: groups
+    # ------------------------------------------------------------------
+
+    def list_groups(self) -> list[dict]:
+        """Return all Superset security groups as raw dicts."""
+        http = self._get_api_client().get_httpx_client()
+        resp = http.get("/api/v1/security/groups/", params={"q": "(page_size:1000)"})
+        if resp.is_error:
+            raise RuntimeError(f"list_groups failed: HTTP {resp.status_code} — {resp.text}")
+        return resp.json().get("result", [])
+
+    def ensure_group(
+        self,
+        name: str,
+        label: str | None = None,
+        description: str | None = None,
+    ) -> tuple[int, bool]:
+        """Return (group_id, was_created). Idempotent — skips creation if name already exists."""
+        for g in self.list_groups():
+            if g.get("name") == name:
+                return int(g["id"]), False
+        self._ensure_csrf()
+        payload: dict = {"name": name}
+        if label:
+            payload["label"] = label
+        if description:
+            payload["description"] = description
+        http = self._get_api_client().get_httpx_client()
+        resp = http.post("/api/v1/security/groups/", json=payload)
+        if resp.is_error:
+            raise RuntimeError(
+                f"Failed to create group {name!r}: HTTP {resp.status_code} — {resp.text}"
+            )
+        return int(resp.json()["id"]), True
+
+    def update_group_roles(self, group_id: int, role_ids: list[int]) -> None:
+        """Replace the role list on an existing group."""
+        http = self._get_api_client().get_httpx_client()
+        info = http.get(f"/api/v1/security/groups/{group_id}")
+        if info.is_error:
+            raise RuntimeError(f"get group {group_id} failed: HTTP {info.status_code}")
+        name = info.json()["result"]["name"]
+        self._ensure_csrf()
+        resp = http.put(f"/api/v1/security/groups/{group_id}", json={"name": name, "roles": role_ids})
+        if resp.is_error:
+            raise RuntimeError(
+                f"update_group_roles group={group_id} failed: HTTP {resp.status_code} — {resp.text}"
+            )
+
+    # ------------------------------------------------------------------
+    # Governance: roles
+    # ------------------------------------------------------------------
+
+    def list_roles(self) -> list[dict]:
+        """Return all Superset roles as raw dicts [{id, name}]."""
+        http = self._get_api_client().get_httpx_client()
+        resp = http.get("/api/v1/security/roles/", params={"q": "(page_size:1000)"})
+        if resp.is_error:
+            raise RuntimeError(f"list_roles failed: HTTP {resp.status_code} — {resp.text}")
+        return resp.json().get("result", [])
+
+    def delete_role(self, role_id: int) -> None:
+        """Delete a role by id."""
+        self._ensure_csrf()
+        http = self._get_api_client().get_httpx_client()
+        resp = http.delete(f"/api/v1/security/roles/{role_id}")
+        if resp.is_error:
+            raise RuntimeError(f"delete_role {role_id} failed: HTTP {resp.status_code} — {resp.text}")
+
+    def ensure_role(self, name: str) -> tuple[int, bool]:
+        """Return (role_id, was_created). Idempotent."""
+        for r in self.list_roles():
+            if r.get("name") == name:
+                return int(r["id"]), False
+        self._ensure_csrf()
+        http = self._get_api_client().get_httpx_client()
+        resp = http.post("/api/v1/security/roles/", json={"name": name})
+        if resp.is_error:
+            raise RuntimeError(
+                f"Failed to create role {name!r}: HTTP {resp.status_code} — {resp.text}"
+            )
+        return int(resp.json()["id"]), True
+
+    # ------------------------------------------------------------------
+    # Governance: datasets + permissions
+    # ------------------------------------------------------------------
+
+    def list_datasets_full(self) -> list[dict]:
+        """Return [{id, table_name, schema}] for all registered datasets."""
+        http = self._get_api_client().get_httpx_client()
+        resp = http.get("/api/v1/dataset/", params={"q": "(page_size:1000)"})
+        if resp.is_error:
+            raise RuntimeError(f"list_datasets_full failed: HTTP {resp.status_code} — {resp.text}")
+        return [
+            {"id": r["id"], "table_name": r.get("table_name", ""), "schema": r.get("schema", "")}
+            for r in resp.json().get("result", [])
+        ]
+
+    def update_dataset_extra(self, dataset_id: int, extra_update: dict) -> None:
+        """Merge extra_update into the dataset's existing extra JSON and PUT it back."""
+        http = self._get_api_client().get_httpx_client()
+        info = http.get(f"/api/v1/dataset/{dataset_id}")
+        if info.is_error:
+            raise RuntimeError(f"get dataset {dataset_id} failed: HTTP {info.status_code}")
+        raw_extra = info.json().get("result", {}).get("extra") or "{}"
+        try:
+            current_extra = json.loads(raw_extra)
+        except (json.JSONDecodeError, TypeError):
+            current_extra = {}
+        current_extra.update(extra_update)
+        self._ensure_csrf()
+        resp = http.put(f"/api/v1/dataset/{dataset_id}", json={"extra": json.dumps(current_extra)})
+        if resp.is_error:
+            raise RuntimeError(
+                f"update_dataset_extra dataset={dataset_id} failed: HTTP {resp.status_code} — {resp.text}"
+            )
+
+    # ------------------------------------------------------------------
+    # Governance: role permissions
+    # ------------------------------------------------------------------
+
+    def get_role_permission_ids(self, role_id: int) -> list[int]:
+        """Return PVM ids assigned to a role."""
+        http = self._get_api_client().get_httpx_client()
+        resp = http.get(f"/api/v1/security/roles/{role_id}/permissions/")
+        if resp.is_error:
+            raise RuntimeError(f"get_role_permissions {role_id} failed: HTTP {resp.status_code} — {resp.text}")
+        return [item["id"] for item in resp.json().get("result", [])]
+
+    def set_role_permissions(self, role_id: int, perm_ids: list[int]) -> None:
+        """Replace the permission set on a role."""
+        self._ensure_csrf()
+        http = self._get_api_client().get_httpx_client()
+        resp = http.post(
+            f"/api/v1/security/roles/{role_id}/permissions",
+            json={"permission_view_menu_ids": perm_ids},
+        )
+        if resp.is_error:
+            raise RuntimeError(f"set_role_permissions {role_id} failed: HTTP {resp.status_code} — {resp.text}")
+
     def __enter__(self):
         return self
 
@@ -250,12 +406,23 @@ class SupersetClient:
             self._api_client.get_httpx_client().close()
 
 
-def _build_import_body(resource: str, zip_bytes: bytes, overwrite: bool):
-    file = File(payload=BytesIO(zip_bytes), file_name="bundle.zip", mime_type="application/zip")
+def _export_module(resource: str):
     if resource == "dashboard":
-        return PostApiV1DashboardImportBody(form_data=file, overwrite=overwrite)
+        return get_api_v1_dashboard_export
     if resource == "chart":
-        return PostApiV1ChartImportBody(form_data=file, overwrite=overwrite)
+        return get_api_v1_chart_export
     if resource == "dataset":
-        return PostApiV1DatasetImportBody(form_data=file, overwrite=overwrite)
+        return get_api_v1_dataset_export
     raise ValueError(f"Unknown resource: {resource!r}")
+
+
+def _list_module(resource: str):
+    if resource == "dashboard":
+        return get_api_v1_dashboard
+    if resource == "chart":
+        return get_api_v1_chart
+    if resource == "dataset":
+        return get_api_v1_dataset
+    raise ValueError(f"Unknown resource: {resource!r}")
+
+

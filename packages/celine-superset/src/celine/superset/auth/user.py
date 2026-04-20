@@ -4,6 +4,7 @@ User resolution logic — no superset imports at module level.
 SecurityManagerProtocol lets tests inject a plain Mock without installing
 apache-superset as a test dependency.
 """
+
 import json
 import logging
 import os
@@ -31,7 +32,9 @@ class SecurityManagerProtocol(Protocol):
 
     def find_user(self, username: str) -> Any: ...
     def find_role(self, name: str) -> Any: ...
-    def add_user(self, username: str, first_name: str, last_name: str, email: str, role: list) -> Any: ...
+    def add_user(
+        self, username: str, first_name: str, last_name: str, email: str, role: list
+    ) -> Any: ...
     def update_user(self, user: Any) -> None: ...
     def update_user_auth_stat(self, user: Any) -> None: ...
 
@@ -42,9 +45,10 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
 
     - KC service accounts (azp in CLI_ADMIN_AZP) always get Admin role.
     - Other users: Superset roles resolved from KC group paths via resolve_access().
-    - Falls back to Public role when no group matches.
+    - Users with no matching KC group are denied (returns None).
     - Stores org_slugs as JSON in user.extra for downstream RLS setup.
     """
+    print(claims)
     username = (
         claims.get("preferred_username")
         or claims.get("email")
@@ -52,7 +56,9 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
         or claims.get("sub")
     )
     if not username:
-        logger.warning("resolve_superset_user: no username in claims (sub=%s)", claims.get("sub"))
+        logger.warning(
+            "resolve_superset_user: no username in claims (sub=%s)", claims.get("sub")
+        )
         return None
 
     azp = claims.get("azp")
@@ -60,18 +66,36 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
         # Trusted machine client — give Admin unconditionally
         access_roles = ["Admin"]
         org_slugs: list[str] = []
+        org_role_names: list[str] = []
     else:
-        access = resolve_access(claims.get("groups", []))
+        access = resolve_access(claims)
         access_roles = access.superset_roles
         org_slugs = access.org_slugs
+        org_role_names = access.org_role_names
 
     roles = [r for name in access_roles if (r := sm.find_role(name)) is not None]
-    logger.debug("resolve_superset_user: username=%s azp=%s access_roles=%s resolved_roles=%s",
-                 username, azp, access_roles, [r.name for r in roles])
+
+    # org:<slug>:<level> roles are provisioned by `governance sync`; silently skipped if absent
+    for org_role_name in org_role_names:
+        org_role = sm.find_role(org_role_name)
+        if org_role is not None and org_role not in roles:
+            roles.append(org_role)
+
+    logger.debug(
+        "resolve_superset_user: username=%s azp=%s access_roles=%s org_slugs=%s org_role_names=%s resolved_roles=%s",
+        username,
+        azp,
+        access_roles,
+        org_slugs,
+        org_role_names,
+        [r.name for r in roles],
+    )
     if not roles:
-        fallback = sm.find_role("Public")
-        if fallback:
-            roles = [fallback]
+        logger.warning(
+            "resolve_superset_user: username=%s has no matching Superset roles — access denied",
+            username,
+        )
+        return None
 
     user = sm.find_user(username=username)
 
@@ -85,11 +109,18 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
         return user
 
     if not sm.auth_user_registration:
-        logger.warning("resolve_superset_user: user %s not found and registration disabled", username)
+        logger.warning(
+            "resolve_superset_user: user %s not found and registration disabled",
+            username,
+        )
         return None
 
-    logger.info("resolve_superset_user: creating new user username=%s email=%s roles=%s",
-                username, claims.get("email", f"{username}@local"), [r.name for r in roles])
+    logger.info(
+        "resolve_superset_user: creating new user username=%s email=%s roles=%s",
+        username,
+        claims.get("email", f"{username}@local"),
+        [r.name for r in roles],
+    )
     user = sm.add_user(
         username=username,
         first_name=claims.get("given_name", "Service"),
@@ -104,6 +135,9 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
             sm.update_user(user)
         sm.update_user_auth_stat(user)
     else:
-        logger.error("resolve_superset_user: add_user returned falsy for username=%s — DB error?", username)
+        logger.error(
+            "resolve_superset_user: add_user returned falsy for username=%s — DB error?",
+            username,
+        )
 
     return user

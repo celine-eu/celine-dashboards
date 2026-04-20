@@ -29,7 +29,6 @@ from flask_appbuilder.security.manager import AUTH_REMOTE_USER
 
 
 from celine.superset.plugin.security_manager import OAuth2ProxySecurityManager
-from celine.superset.auth.groups import DEFAULT_ROLE
 
 DB_DIALECT = os.getenv("DB_DIALECT", "postgres")
 DB_HOST = os.getenv("DB_HOST", "host.docker.internal")
@@ -82,7 +81,7 @@ CUSTOM_SECURITY_MANAGER = OAuth2ProxySecurityManager
 
 AUTH_TYPE = AUTH_REMOTE_USER
 AUTH_USER_REGISTRATION = True  # Allow automatic user creation
-AUTH_USER_REGISTRATION_ROLE = DEFAULT_ROLE
+AUTH_USER_REGISTRATION_ROLE = "Public"
 AUTH_ROLES_SYNC_AT_LOGIN = True
 
 # # Make sure cookies apply to all subpaths and subdomains

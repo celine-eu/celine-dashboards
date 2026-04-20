@@ -1,0 +1,24 @@
+instances:
+  dev:
+    url: http://superset.celine.localhost
+    kc_issuer_url: http://keycloak.celine.localhost/realms/celine
+    kc_client_id: celine-cli
+    kc_client_secret: ""
+    # passwords: map injected on import — keys are ZIP-relative DB config paths.
+    # Run `celine-superset export dashboard 1` on the source instance first,
+    # then inspect the ZIP for database YAML paths and set passwords here.
+    passwords: {}
+    bootstrap_db_name: celine_dev
+    bootstrap_db_uri: postgresql+psycopg2://postgres:securepassword123@host.docker.internal:15432/datasets
+    bootstrap_db_schema: ds_dev_gold
+
+  staging:
+    url: https://superset.staging.example.com
+    kc_issuer_url: https://keycloak.staging.example.com/realms/celine
+    kc_client_id: celine-cli
+    kc_client_secret: ""
+    passwords:
+      databases/celine_dev.yaml: ""
+    bootstrap_db_name: celine
+    bootstrap_db_uri: postgresql+psycopg2://user:pass@host.docker.internal:15432/celine
+    bootstrap_db_schema: ds_gold
