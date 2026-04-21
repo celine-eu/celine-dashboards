@@ -21,7 +21,9 @@ import json
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from enum import Enum
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
@@ -129,15 +131,71 @@ def export_resources(
 def import_bundle(
     ctx: typer.Context,
     bundle: Path = typer.Argument(..., help="ZIP bundle to import"),
+    password: Optional[list[str]] = typer.Option(
+        None,
+        "--password",
+        help="DB password as KEY=VALUE (ZIP-relative path). Repeatable. Overrides instances.yaml.",
+    ),
+    adapt_db: bool = typer.Option(
+        True,
+        "--adapt-db/--no-adapt-db",
+        help="Replace DB connection(s) in the bundle with bootstrap_db_uri from instances.yaml.",
+    ),
 ):
     """Import an asset bundle into the target instance.
 
-    Database passwords are read from instances.yaml for the target env.
+    By default, database connection strings in the bundle are replaced with the
+    target env's bootstrap_db_uri so dashboards work immediately after import.
+    Use --no-adapt-db to import the bundle's original connections unchanged.
     """
     client: SupersetClient = ctx.obj
-    passwords: dict[str, str] = ctx.meta["passwords"]
-    msg = client.import_assets(bundle.read_bytes(), passwords or None)
+    settings: Settings = ctx.meta["settings"]
+    passwords: dict[str, str] = dict(ctx.meta["passwords"])
+
+    if password:
+        for kv in password:
+            if "=" not in kv:
+                _console.print(f"[red]--password must be KEY=VALUE, got: {kv!r}[/red]")
+                raise typer.Exit(1)
+            k, _, v = kv.partition("=")
+            passwords[k.strip()] = v
+
+    zip_bytes = bundle.read_bytes()
+    db_uri_override = settings.bootstrap_db_uri if adapt_db else None
+
+    if adapt_db:
+        _console.print(
+            f"Adapting DB connection(s) → [cyan]{settings.bootstrap_db_uri}[/cyan]"
+        )
+    else:
+        db_paths = _zip_database_paths(zip_bytes)
+        if db_paths:
+            missing = [p for p in db_paths if p not in passwords]
+            _console.print(f"Bundle contains [cyan]{len(db_paths)}[/cyan] database config(s):")
+            for p in db_paths:
+                status = "[green]✓[/green]  (password set)" if p in passwords else "[yellow]![/yellow]  [yellow](no password — add to instances.yaml or use --password)[/yellow]"
+                _console.print(f"  {status}  {p}")
+            if missing:
+                _console.print(
+                    "\n[yellow]Hint:[/yellow] add to instances.yaml:\n"
+                    "  passwords:\n" +
+                    "".join(f"    {p}: <password>\n" for p in missing)
+                )
+
+    msg = client.import_assets(zip_bytes, passwords or None, db_uri_override=db_uri_override)
     rprint(f"[green]Imported {bundle.name}:[/green] {msg}")
+
+
+def _zip_database_paths(zip_bytes: bytes) -> list[str]:
+    """Return ZIP-relative paths of database YAML files inside the bundle."""
+    try:
+        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+            return sorted(
+                n for n in zf.namelist()
+                if n.startswith("databases/") and n.endswith(".yaml")
+            )
+    except zipfile.BadZipFile:
+        return []
 
 
 # ---------------------------------------------------------------------------

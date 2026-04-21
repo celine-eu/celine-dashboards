@@ -4,10 +4,14 @@ instances:
     kc_issuer_url: http://keycloak.celine.localhost/realms/celine
     kc_client_id: celine-cli
     kc_client_secret: ""
-    # passwords: map injected on import — keys are ZIP-relative DB config paths.
-    # Run `celine-superset export dashboard 1` on the source instance first,
-    # then inspect the ZIP for database YAML paths and set passwords here.
+    # passwords: DB passwords injected on import.
+    # Keys are ZIP-relative paths shown by `celine-superset import <bundle.zip>`.
+    # When importing from an external instance the key is typically:
+    #   databases/PostgreSQL.yaml   (or whatever the source DB is named)
+    # Can also be passed inline: --password 'databases/PostgreSQL.yaml=secret'
     passwords: {}
+    # passwords:
+    #   databases/PostgreSQL.yaml: ""
     bootstrap_db_name: celine_dev
     bootstrap_db_uri: postgresql+psycopg2://postgres:securepassword123@host.docker.internal:15432/datasets
     bootstrap_db_schema: ds_dev_gold
