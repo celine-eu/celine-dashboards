@@ -165,7 +165,8 @@ def import_bundle(
 
     if adapt_db:
         _console.print(
-            f"Adapting DB connection(s) → [cyan]{settings.bootstrap_db_uri}[/cyan]"
+            f"Adapting DB connection(s) → [cyan]{settings.bootstrap_db_name}[/cyan]"
+            f"  ({settings.bootstrap_db_uri})"
         )
     else:
         db_paths = _zip_database_paths(zip_bytes)
@@ -182,7 +183,12 @@ def import_bundle(
                     "".join(f"    {p}: <password>\n" for p in missing)
                 )
 
-    msg = client.import_assets(zip_bytes, passwords or None, db_uri_override=db_uri_override)
+    msg = client.import_assets(
+        zip_bytes,
+        passwords or None,
+        db_uri_override=db_uri_override,
+        local_db_name=settings.bootstrap_db_name if adapt_db else None,
+    )
     rprint(f"[green]Imported {bundle.name}:[/green] {msg}")
 
 

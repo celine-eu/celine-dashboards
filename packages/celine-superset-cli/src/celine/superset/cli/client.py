@@ -193,31 +193,47 @@ class SupersetClient:
     # Import (ZIP bundle) — type-agnostic assets endpoint
     # ------------------------------------------------------------------
 
+    def find_database_by_name(self, name: str) -> dict | None:
+        """Return {id, uuid, database_name} for a database matched by name, or None."""
+        http = self._get_api_client().get_httpx_client()
+        resp = http.get("/api/v1/database/", params={"q": "(page_size:200)"})
+        if resp.is_error:
+            raise RuntimeError(f"list databases failed: HTTP {resp.status_code}")
+        for r in resp.json().get("result", []):
+            if r.get("database_name") == name:
+                return {"id": r["id"], "uuid": str(r["uuid"]), "database_name": r["database_name"]}
+        return None
+
     def import_assets(
         self,
         zip_bytes: bytes,
         passwords: dict[str, str] | None = None,
         overwrite: bool = True,
         db_uri_override: str | None = None,
+        local_db_name: str | None = None,
     ) -> str:
         """Import any Superset asset bundle.
 
-        db_uri_override replaces every databases/*.yaml connection with the given URI
-        after import (the dashboard importer never updates existing DB connections, so
-        we must do it via a separate PUT after the bundle is accepted).
+        When db_uri_override and local_db_name are both set, the bundle's database
+        entries are remapped to the existing local database (same UUID/name) so no
+        duplicate connection is created.  The dashboard importer never updates existing
+        DB connections, so we also issue a PUT after import to keep credentials current.
         """
-        # Parse the override URI before patching so we have the real password.
+        from urllib.parse import urlparse
         override_password: str | None = None
         if db_uri_override:
-            from urllib.parse import urlparse
             override_password = urlparse(db_uri_override).password or None
 
-        if db_uri_override:
-            zip_bytes, auto_passwords = _patch_db_uris(zip_bytes, db_uri_override)
-            passwords = {**auto_passwords, **(passwords or {})}
+        # Resolve the local DB record so we can swap UUIDs in the bundle.
+        local_db: dict | None = None
+        if db_uri_override and local_db_name:
+            local_db = self.find_database_by_name(local_db_name)
 
-        # Collect DB UUIDs from the bundle before sending (used for post-import update).
-        db_uuids_to_update = _db_uuids_from_zip(zip_bytes) if db_uri_override else []
+        if db_uri_override:
+            zip_bytes, auto_passwords = _patch_db_uris(
+                zip_bytes, db_uri_override, local_db=local_db
+            )
+            passwords = {**auto_passwords, **(passwords or {})}
 
         self._ensure_csrf()
         http = self._get_api_client().get_httpx_client()
@@ -234,40 +250,23 @@ class SupersetClient:
 
         # The dashboard importer always calls import_database(overwrite=False), so an
         # existing DB connection is never updated by the import itself.  Fix it now.
-        if db_uri_override and db_uuids_to_update:
-            self._update_db_uris(db_uuids_to_update, db_uri_override, override_password)
+        if db_uri_override and local_db:
+            self._update_db_uri(local_db["id"], db_uri_override, override_password)
 
         return resp.json().get("message", "ok")
 
-    def _update_db_uris(
-        self,
-        uuids: list[str],
-        sqlalchemy_uri: str,
-        password: str | None,
-    ) -> None:
-        """Find databases by UUID and update their connection URI."""
-        http = self._get_api_client().get_httpx_client()
-        resp = http.get("/api/v1/database/", params={"q": "(page_size:200)"})
-        if resp.is_error:
-            raise RuntimeError(f"list databases failed: HTTP {resp.status_code}")
-        db_by_uuid = {
-            str(r.get("uuid")): r["id"]
-            for r in resp.json().get("result", [])
-            if r.get("uuid")
-        }
+    def _update_db_uri(self, db_id: int, sqlalchemy_uri: str, password: str | None) -> None:
+        """Update the URI (and optionally password) of a database by id."""
         self._ensure_csrf()
-        for uuid in uuids:
-            db_id = db_by_uuid.get(uuid)
-            if db_id is None:
-                continue
-            payload: dict = {"sqlalchemy_uri": sqlalchemy_uri}
-            if password:
-                payload["password"] = password
-            put = http.put(f"/api/v1/database/{db_id}", json=payload)
-            if put.is_error:
-                raise RuntimeError(
-                    f"update database {uuid} failed: HTTP {put.status_code} — {_extract_error(put.content)}"
-                )
+        http = self._get_api_client().get_httpx_client()
+        payload: dict = {"sqlalchemy_uri": sqlalchemy_uri}
+        if password:
+            payload["password"] = password
+        resp = http.put(f"/api/v1/database/{db_id}", json=payload)
+        if resp.is_error:
+            raise RuntimeError(
+                f"update database id={db_id} failed: HTTP {resp.status_code} — {_extract_error(resp.content)}"
+            )
 
     # ------------------------------------------------------------------
     # Bootstrap helpers
@@ -540,41 +539,71 @@ def _db_uuids_from_zip(zip_bytes: bytes) -> list[str]:
     return uuids
 
 
-def _patch_db_uris(zip_bytes: bytes, db_uri: str) -> tuple[bytes, dict[str, str]]:
-    """Replace sqlalchemy_uri in every databases/*.yaml in the bundle.
+def _patch_db_uris(
+    zip_bytes: bytes,
+    db_uri: str,
+    local_db: dict | None = None,
+) -> tuple[bytes, dict[str, str]]:
+    """Replace database entries in the bundle with the target environment's connection.
 
-    Returns (patched_zip_bytes, {zip_relative_path: password}) so the caller
-    can add the password to the passwords dict sent to Superset.
-    The password is extracted from the URI and replaced with XXXXXXXXXX in the YAML.
+    When local_db ({id, uuid, database_name}) is provided, the source database UUID
+    and name are replaced with the local ones so Superset maps to the existing
+    connection rather than creating a duplicate.
+
+    Returns (patched_zip_bytes, {zip_relative_path: password}).
     """
     from urllib.parse import urlparse as _urlparse
 
     parsed = _urlparse(db_uri)
     password = parsed.password or ""
-    if password:
-        masked_uri = db_uri.replace(f":{password}@", ":XXXXXXXXXX@", 1)
-    else:
-        masked_uri = db_uri
+    masked_uri = db_uri.replace(f":{password}@", ":XXXXXXXXXX@", 1) if password else db_uri
 
     auto_passwords: dict[str, str] = {}
+
+    # Collect source→target UUID mappings so dataset files can be updated too.
+    uuid_remap: dict[str, str] = {}
+
     buf = BytesIO()
     with zipfile.ZipFile(BytesIO(zip_bytes)) as zin, \
          zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
-        for info in zin.infolist():
+        # Two-pass: databases first (build uuid_remap), then datasets.
+        infos = zin.infolist()
+        db_infos = [i for i in infos if _rel_path(i.filename).startswith("databases/") and i.filename.endswith(".yaml")]
+        other_infos = [i for i in infos if i not in db_infos]
+
+        for info in db_infos:
             data = zin.read(info.filename)
-            parts = info.filename.split("/")
-            # strip root export directory to get the ZIP-relative key
-            rel = "/".join(parts[1:]) if len(parts) > 1 else info.filename
-            if rel.startswith("databases/") and rel.endswith(".yaml"):
+            rel = _rel_path(info.filename)
+            config = yaml.safe_load(data.decode())
+            source_uuid = str(config.get("uuid", ""))
+            config["sqlalchemy_uri"] = masked_uri
+            if local_db:
+                uuid_remap[source_uuid] = local_db["uuid"]
+                config["uuid"] = local_db["uuid"]
+                config["database_name"] = local_db["database_name"]
+            if password:
+                target_rel = rel if not local_db else f"databases/{local_db['database_name']}.yaml"
+                auto_passwords[target_rel] = password
+            # keep original filename in ZIP (Superset strips the root dir anyway)
+            zout.writestr(info, yaml.dump(config, default_flow_style=False, allow_unicode=True).encode())
+
+        for info in other_infos:
+            data = zin.read(info.filename)
+            rel = _rel_path(info.filename)
+            if rel.startswith("datasets/") and rel.endswith(".yaml") and uuid_remap:
                 config = yaml.safe_load(data.decode())
-                config["sqlalchemy_uri"] = masked_uri
-                data = yaml.dump(
-                    config, default_flow_style=False, allow_unicode=True
-                ).encode()
-                if password:
-                    auto_passwords[rel] = password
+                src = str(config.get("database_uuid", ""))
+                if src in uuid_remap:
+                    config["database_uuid"] = uuid_remap[src]
+                data = yaml.dump(config, default_flow_style=False, allow_unicode=True).encode()
             zout.writestr(info, data)
+
     return buf.getvalue(), auto_passwords
+
+
+def _rel_path(filename: str) -> str:
+    parts = filename.split("/")
+    return "/".join(parts[1:]) if len(parts) > 1 else filename
 
 
 _BUNDLE_TYPE_ENDPOINT: dict[str, tuple[str, str]] = {
