@@ -23,10 +23,12 @@ x-common: &common
     - "sso.celine.localhost:host-gateway"
   user: "root"
   environment:
-    PYTHONPATH: /packages/celine-superset/src:/app/pythonpath:/app/docker/pythonpath_dev
+    PYTHONPATH: /opt/celine-dashboards/src:/app/pythonpath:/app/docker/pythonpath_dev
   volumes:
     - ./config/superset:/app/docker
-    - ./packages:/packages
+    - ./src:/opt/celine-dashboards/src
+    - ./README.md:/opt/celine-dashboards/README.md
+    - ./pyproject.toml:/opt/celine-dashboards/pyproject.toml
     - superset_home:/app/superset_home
 
 services:
@@ -122,7 +124,7 @@ services:
       dockerfile: Dockerfile.jupyter
     volumes:
       - ./config/jupyter/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
-      - ./packages/jupyter_jwt_auth:/opt/jwt_auth
+      - ./src:/opt/celine-dashboards/src
       - ./data/notebooks:/home/jovyan/notebooks
     restart: unless-stopped
     networks:

@@ -1,5 +1,7 @@
 /data
 sources.txt
+instances.yaml
+*.zip
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

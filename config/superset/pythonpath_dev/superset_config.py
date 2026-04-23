@@ -63,8 +63,12 @@ CACHE_CONFIG = {
 }
 DATA_CACHE_CONFIG = CACHE_CONFIG
 
-ENABLE_JAVASCRIPT_CONTROLS = True
-FEATURE_FLAGS = {"ALERT_REPORTS": True}
+
+FEATURE_FLAGS = {
+    "ALERT_REPORTS": True,
+    "ENABLE_JAVASCRIPT_CONTROLS": True,
+}
+
 SQLLAB_CTAS_NO_LIMIT = True
 
 HTML_SANITIZATION_SCHEMA_EXTENSIONS = {
@@ -100,6 +104,8 @@ ENABLE_PROXY_FIX = True
 RECAPTCHA_PUBLIC_KEY = os.getenv("RECAPTCHA_PUBLIC_KEY", "")
 RECAPTCHA_PRIVATE_KEY = os.getenv("RECAPTCHA_PRIVATE_KEY", "")
 
+TALISMAN_ENABLED = True
+
 TALISMAN_CONFIG = {
     "content_security_policy": {
         "base-uri": ["'self'"],
@@ -110,9 +116,9 @@ TALISMAN_CONFIG = {
             "data:",
             "https://apachesuperset.gateway.scarf.sh",
             "https://static.scarf.sh/",
-            # "https://cdn.brandfolder.io", # Uncomment when SLACK_ENABLE_AVATARS is True  # noqa: E501
+            # "https://cdn.brandfolder.io",  # Uncomment when SLACK_ENABLE_AVATARS is True
             "ows.terrestris.de",  # Example WMS
-            # "aws.s3.com", # Add Your Bucket or external data source
+            # "aws.s3.com",  # Add your bucket or external data source
         ],
         "worker-src": ["'self'", "blob:"],
         "connect-src": [
@@ -125,7 +131,12 @@ TALISMAN_CONFIG = {
             "'self'",
             "'unsafe-inline'",
         ],
-        "script-src": ["'self'", "'strict-dynamic'", "'unsafe-inline'"],
+        "script-src": [
+            "'self'",
+            "'strict-dynamic'",
+            "'unsafe-inline'",
+            "'unsafe-eval'",  # <-- only addition needed for JS controls
+        ],
     },
     "content_security_policy_nonce_in": ["script-src"],
     "force_https": False,

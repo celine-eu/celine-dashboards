@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-cd /app && uv pip install --reinstall /packages/celine-superset
+cd /app && uv pip install --reinstall "/opt/celine-dashboards[superset]"
 
 case "${1}" in
   worker)

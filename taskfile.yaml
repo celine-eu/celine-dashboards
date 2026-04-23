@@ -14,9 +14,7 @@ tasks:
           echo "SUPERSET_SECRET_KEY=$(openssl rand -base64 42)" >> "$ENV_FILE"
           echo "SUPERSET_SECRET_KEY written to $ENV_FILE"
         fi
-      - cd packages/celine-superset && uv sync
-      - cd packages/celine-superset-cli && uv sync
-      - cd packages/jupyter_jwt_auth && uv sync
+      - uv sync --all-extras
 
   start:
     desc: "Start containers"
@@ -57,17 +55,27 @@ tasks:
       - git push --tags
 
   test:
-    desc: "Run tests for all packages"
+    desc: "Run all tests"
     cmds:
-      - cd packages/celine-superset && uv run pytest
-      - cd packages/celine-superset-cli && uv run pytest
+      - uv run pytest
 
   test:auth:
-    desc: "Run celine-superset auth tests only (no superset dep needed)"
+    desc: "Run Superset auth tests only (no Superset dep needed)"
     cmds:
-      - cd packages/celine-superset && uv run pytest tests/auth/ -v
+      - uv run pytest tests/superset/auth/ -v
 
   test:cli:
-    desc: "Run CLI tests"
+    desc: "Run Superset CLI tests"
     cmds:
-      - cd packages/celine-superset-cli && uv run pytest -v
+      - uv run pytest tests/superset/cli/ -v
+
+  governance:sync:
+    desc: "Sync Superset dataset governance"
+    cmds:
+      - |
+        uv run celine-superset bootstrap
+        uv run celine-superset governance sync \
+          --path '../celine-pipelines/**/governance.yaml' \
+          --path '../../../demo3/**/governance.yaml' \
+          --owners '../dataset-api/owners.local.yaml' \
+          --filter 'ds_dev_gold.*'

@@ -12,7 +12,9 @@ RUN pip install --no-cache-dir celine-utils
 
 COPY ./config/jupyter/jupyterhub_config.py /home/jovyan/.jupyter/
 
-COPY ./packages/jupyter_jwt_auth /opt/jupyter_jwt_auth
-RUN pip install /opt/jupyter_jwt_auth
+COPY ./pyproject.toml /opt/celine-dashboards/pyproject.toml
+COPY ./src /opt/celine-dashboards/src
+COPY ./README.md /opt/celine-dashboards/README.md
+RUN pip install "/opt/celine-dashboards[jupyter]"
 
 USER jovyan
