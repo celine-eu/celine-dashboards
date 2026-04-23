@@ -198,5 +198,5 @@ WEBDRIVER_OPTION_ARGS = [
 WEBDRIVER_BASEURL = os.getenv("WEBDRIVER_BASEURL", "http://superset:8088")
 # This is the link sent to the recipient in email reports
 WEBDRIVER_BASEURL_USER_FRIENDLY = os.getenv(
-    "WEBDRIVER_BASEURL_USER_FRIENDLY", "http://localhost:8088"
+    "WEBDRIVER_BASEURL_USER_FRIENDLY", "http://superset.celine.localhost"
 )
