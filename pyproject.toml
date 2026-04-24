@@ -1,6 +1,6 @@
 [project]
 name = "celine-dashboards"
-version = "0.1.0"
+version = "1.1.0"
 description = "CELINE dashboards toolkit — Superset SSO plugin, Superset management CLI, Jupyter JWT authorizer"
 readme = "README.md"
 requires-python = ">=3.10"

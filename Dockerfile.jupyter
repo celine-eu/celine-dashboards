@@ -13,7 +13,6 @@ RUN pip install --no-cache-dir celine-utils
 COPY ./config/jupyter/jupyterhub_config.py /home/jovyan/.jupyter/
 
 COPY ./packages/celine-jupyter /opt/celine-jupyter
-COPY ./README.md /opt/celine-jupyter/README.md
 RUN pip install /opt/celine-jupyter
 
 USER jovyan
