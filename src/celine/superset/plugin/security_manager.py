@@ -1,9 +1,10 @@
 import json
 import logging
 import os
+import urllib.parse
 from typing import Any, Optional
 
-from flask import abort, current_app, g, request
+from flask import abort, current_app, g, redirect, request
 from flask_login import current_user, login_user, logout_user
 from superset.exceptions import SupersetSecurityException
 from superset.security import SupersetSecurityManager
@@ -268,9 +269,19 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             return False
 
     @staticmethod
+    def _redirect_to_login() -> None:
+        next_url = urllib.parse.quote(request.full_path.rstrip("?"), safe="")
+        abort(redirect(f"/login/?next={next_url}"))
+
+    @staticmethod
     def before_request() -> None:
         if request.path.startswith(("/health", "/static", "/favicon.ico")):
             g.user = current_user
+            return
+
+        # Let login/logout views handle their own redirects to the proxy
+        # without requiring a valid JWT (the whole point is re-authentication).
+        if request.path.startswith(("/login", "/logout")):
             return
 
         _patch_dataset_filter_once()
@@ -280,8 +291,11 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
         try:
             claims = extract_jwt_claims(request.headers)
             if not claims:
-                logger.warning("JWT extraction failed — denying %s", request.path)
-                abort(403)
+                logger.warning(
+                    "JWT extraction failed for %s — redirecting to oauth2 proxy",
+                    request.path,
+                )
+                OAuth2ProxySecurityManager._redirect_to_login()
 
             # Re-use the existing session only when the incoming JWT belongs to the
             # same user already logged in — prevents session fixation when a
@@ -302,10 +316,10 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             user = resolve_superset_user(sm, claims)
             if not user:
                 logger.warning(
-                    "User resolution failed for sub=%s — denying access",
+                    "User resolution failed for sub=%s — redirecting to oauth2 proxy",
                     claims.get("sub"),
                 )
-                abort(403)
+                OAuth2ProxySecurityManager._redirect_to_login()
 
             login_user(user, remember=False)
             g.user = user
@@ -321,4 +335,4 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             logger.exception(
                 "Authentication error in before_request for %s", request.path
             )
-            abort(403)
+            OAuth2ProxySecurityManager._redirect_to_login()

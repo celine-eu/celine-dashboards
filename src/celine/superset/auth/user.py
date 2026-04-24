@@ -48,7 +48,6 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
     - Users with no matching KC group are denied (returns None).
     - Stores org_slugs as JSON in user.extra for downstream RLS setup.
     """
-    print(claims)
     username = (
         claims.get("preferred_username")
         or claims.get("email")
