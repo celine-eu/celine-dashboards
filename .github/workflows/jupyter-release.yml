@@ -7,8 +7,7 @@ on:
         paths:
             - "Dockerfile.jupyter"
             - "config/jupyter/jupyterhub_config.py"
-            - "src/celine/jupyter/**"
-            - "pyproject.toml"
+            - "packages/celine-jupyter/**"
             - "version.jupyter.txt"
 
     workflow_dispatch:

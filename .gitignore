@@ -212,4 +212,4 @@ __marimo__/
 
 # Dumpster output
 .dumpster
-.claude
+.claudesrc/celine/superset/__pycache__/

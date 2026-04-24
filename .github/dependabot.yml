@@ -20,6 +20,36 @@ updates:
         update-types:
           - "patch"
     versioning-strategy: increase-if-necessary
+  - package-ecosystem: uv
+    directory: "/packages/celine-superset"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps): "
+      prefix-development: "chore(deps-dev): "
+    groups:
+      development-dependencies:
+        dependency-type: development
+      runtime-dependencies:
+        dependency-type: production
+        update-types:
+          - "patch"
+    versioning-strategy: increase-if-necessary
+  - package-ecosystem: uv
+    directory: "/packages/celine-jupyter"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps): "
+      prefix-development: "chore(deps-dev): "
+    groups:
+      development-dependencies:
+        dependency-type: development
+      runtime-dependencies:
+        dependency-type: production
+        update-types:
+          - "patch"
+    versioning-strategy: increase-if-necessary
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

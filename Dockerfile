@@ -9,11 +9,9 @@ RUN apt-get update && apt-get install -y \
 
 RUN cd /app && uv pip install .
 
-COPY ./pyproject.toml /opt/celine-dashboards/pyproject.toml
-COPY ./src /opt/celine-dashboards/src
-COPY ./README.md /opt/celine-dashboards/README.md
-# NOTE: [superset] extra pulls in pg drivers
-RUN cd /app && uv pip install "/opt/celine-dashboards[superset]"
+COPY ./packages/celine-superset /opt/celine-superset
+COPY ./README.md /opt/celine-superset/README.md
+RUN cd /app && uv pip install "/opt/celine-superset[plugin]"
 
 COPY ./config/superset /app/docker
 
