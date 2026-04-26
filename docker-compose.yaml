@@ -123,13 +123,17 @@ services:
     build:
       dockerfile: Dockerfile.jupyter
     volumes:
-      - ./config/jupyter/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
-      - ./src:/opt/celine-dashboards/src
+      - ./config/jupyter/jupyterhub_config.py:/home/jovyan/.jupyter/jupyterhub_config.py
+      - ./packages/celine-jupyter/src:/opt/celine-jupyter/src
       - ./data/notebooks:/home/jovyan/notebooks
     restart: unless-stopped
     networks:
       - superset_net
     extra_hosts:
+      - "host-gw:host-gateway"
+      - "host.docker.internal:host-gateway"
       - "keycloak.celine.localhost:host-gateway"
+    environment:
+      PYTHONPATH: /opt/celine-jupyter/src
     ports:
       - 8888:8888

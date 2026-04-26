@@ -6,13 +6,13 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-RUN pip install --no-cache-dir psycopg2-binary sqlalchemy pandas scikit-learn
-RUN pip install --no-cache-dir celine-utils
+RUN uv pip install --system psycopg2-binary sqlalchemy pandas scikit-learn
 
 COPY ./config/jupyter/jupyterhub_config.py /home/jovyan/.jupyter/
 
 COPY ./packages/celine-jupyter /opt/celine-jupyter
-RUN pip install /opt/celine-jupyter
+RUN uv pip install --system /opt/celine-jupyter
 
 USER jovyan
