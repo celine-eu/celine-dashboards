@@ -1,6 +1,27 @@
 # CHANGELOG
 
 
+## v1.2.0 (2026-08-13)
+
+### Bug Fixes
+
+- Sync uv lock
+  ([`122a3b8`](https://github.com/celine-eu/celine-dashboards/commit/122a3b8d5573719eef01f20d36e0b679ca51d7ac))
+
+### Chores
+
+- Release images
+  ([`8bd3299`](https://github.com/celine-eu/celine-dashboards/commit/8bd3299c5b94724e43a9280c03ddd01da81a8b8a))
+
+### Features
+
+- Use utils governane lib
+  ([`c2e5232`](https://github.com/celine-eu/celine-dashboards/commit/c2e5232fe12cd5fb8c030cf28f113693fe4b0e5e))
+
+- Wip, review jupyter sso
+  ([`88095fb`](https://github.com/celine-eu/celine-dashboards/commit/88095fb74957013eb96a23bf6c3381c71d9650e1))
+
+
 ## v1.1.0 (2026-04-24)
 
 ### Bug Fixes
