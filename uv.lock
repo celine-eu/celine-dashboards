@@ -534,6 +534,7 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "attrs" },
+    { name = "celine-utils" },
     { name = "cryptography" },
     { name = "httpx" },
     { name = "psycopg2-binary" },
@@ -547,6 +548,7 @@ all = [
 ]
 cli = [
     { name = "attrs" },
+    { name = "celine-utils" },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -577,6 +579,7 @@ dev = [
 requires-dist = [
     { name = "attrs", marker = "extra == 'cli'", specifier = ">=22.2.0" },
     { name = "celine-superset", extras = ["plugin", "cli"], marker = "extra == 'all'" },
+    { name = "celine-utils", marker = "extra == 'cli'", specifier = ">=2.1.0" },
     { name = "cryptography", marker = "extra == 'plugin'", specifier = ">=44.0.0" },
     { name = "httpx", marker = "extra == 'cli'", specifier = ">=0.27.0" },
     { name = "psycopg2-binary", marker = "extra == 'plugin'", specifier = ">=2.9.11" },
@@ -601,6 +604,20 @@ dev = [
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "respx", specifier = ">=0.21.0" },
+]
+
+[[package]]
+name = "celine-utils"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8e/1e/71d74a994b0f8bb00a8ba5ab31fe13c5637c4b0afb7d81941108ce466fa3/celine_utils-2.1.0.tar.gz", hash = "sha256:c65ac30b1bf23c42f83b8c5bdcfc8d98890af829f64516c00f974519dc271e58", size = 81412, upload-time = "2026-08-13T05:31:18.891Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/ec/77a372da85fcd5afc98c02c5a9540773bf8942cf2282ed7193ff8137480c/celine_utils-2.1.0-py3-none-any.whl", hash = "sha256:00d6aeb2d24228cad2afbc39f5abbac3cca20067bf22273e3d8a349653c8f44e", size = 89087, upload-time = "2026-08-13T05:31:17.601Z" },
 ]
 
 [[package]]

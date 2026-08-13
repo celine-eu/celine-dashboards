@@ -23,6 +23,20 @@ cli = [
     "pyyaml>=6.0",
     "rich>=13.0.0",
     "typer>=0.12.0",
+    # Canonical governance.yaml / owners.yaml grammar. Plain `celine-utils`, never
+    # `[all]` — that extra pulls dbt, Meltano, Prefect and Keycloak, which is why
+    # this CLI carried its own copy of the models in the first place. The thin
+    # core adds only jsonschema on top of pydantic + pyyaml, already listed here.
+    #
+    # Scoped to `cli` deliberately: the Superset plugin runs inside Superset's own
+    # interpreter and must not inherit a dependency it never imports.
+    #
+    # >=2.1.0 is what makes this installable at all. 2.0.x declared
+    # `requires-python >= 3.12` while this package supports 3.10 — and must, since
+    # `Dockerfile:13` installs `[plugin]` into `apache/superset:6.0.0`, which is
+    # Python 3.10.19. uv requires a project's dependencies to cover its whole
+    # declared range, so under 2.0.x the workspace would not lock at all.
+    "celine-utils>=2.1.0",
 ]
 all = [
     "celine-superset[plugin,cli]",

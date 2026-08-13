@@ -1,123 +1,71 @@
 """Governance and ownership helpers for the CLI.
 
-Minimal subset of celine-utils governance.py / owners.py models inlined here
-to avoid pulling in celine-utils (and its heavy pipeline deps) as a CLI dep.
+The models, the parser and the owner registry used to be inlined here — "to
+avoid pulling in celine-utils (and its heavy pipeline deps) as a CLI dep", which
+was a good reason: parsing a YAML file required dbt, Meltano, Prefect and
+Keycloak.
+
+`celine.governance` is that grammar with a core of pydantic + pyyaml +
+jsonschema, so the copy stopped buying anything. What remains here is what is
+genuinely Superset's: glob expansion, source-key parsing, and the source
+collection policy.
+
+This adoption was attempted once and reverted. `celine-utils` declared
+`requires-python >= 3.12` while this package ships inside
+`apache/superset:6.0.0`, which is Python 3.10, so the workspace could not lock.
+That floor turned out to be inherited from an extras-only dependency that did
+not need it either; `celine-utils` 2.1.0 declares `>=3.10` and the block is gone.
+Nothing in this file changed in between.
+
+Two behaviours the inlined copy had, now inherited rather than reimplemented:
+
+- **Owner aliases resolve.** The copy registered them, so this CLI was already
+  correct; `dataset-api` was the one that was not. Unchanged here.
+- **Every governance field parses.** The copy read seven and dropped the rest,
+  so `dcat`, `ontology` and `dataspace` blocks were silently invisible. Nothing
+  in this CLI reads them yet, so this widens what is available without changing
+  what is done.
+
+`collect_sources` still does **not** merge `defaults` into each source — see its
+docstring. That is a known defect, deliberately left alone: fixing it changes
+live `datasource_access` tags and belongs in its own change.
 """
 from __future__ import annotations
 
 import fnmatch
 import glob as _glob
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
-import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from celine.governance import (
+    GovernanceConfig,
+    GovernanceOwner,
+    GovernanceResolver,
+    GovernanceRule,
+    OwnerEntry,
+    OwnerOrganization,
+    OwnersRegistry,
+    load_owners_yaml,
+)
 
-
-# ---------------------------------------------------------------------------
-# Governance models
-# ---------------------------------------------------------------------------
-
-class GovernanceOwner(BaseModel):
-    name: str
-    type: str = "OWNER"
-
-
-class GovernanceRule(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    access_level: Optional[str] = None
-    ownership: List[GovernanceOwner] = Field(default_factory=list)
-    tags: List[str] = Field(default_factory=list)
-    classification: Optional[str] = None
-    source_system: Optional[str] = None
-
-
-class GovernanceConfig(BaseModel):
-    defaults: GovernanceRule = Field(default_factory=GovernanceRule)
-    sources: Dict[str, GovernanceRule] = Field(default_factory=dict)
-
-
-def _parse_rule(data: Dict[str, Any]) -> GovernanceRule:
-    block = (data.get("governance") if "governance" in data else data) or {}
-    owners = [
-        GovernanceOwner(**o) if isinstance(o, dict) else GovernanceOwner(name=str(o))
-        for o in (block.get("ownership") or [])
-    ]
-    return GovernanceRule(
-        title=block.get("title"),
-        description=block.get("description"),
-        access_level=block.get("access_level"),
-        ownership=owners,
-        tags=block.get("tags") or [],
-        classification=block.get("classification"),
-        source_system=block.get("source_system"),
-    )
+__all__ = [
+    "GovernanceConfig",
+    "GovernanceOwner",
+    "GovernanceRule",
+    "OwnerEntry",
+    "OwnerOrganization",
+    "OwnersRegistry",
+    "load_governance_file",
+    "load_owners_yaml",
+    "expand_globs",
+    "parse_source_key",
+    "collect_sources",
+]
 
 
 def load_governance_file(path: Path) -> GovernanceConfig:
-    with path.open("r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f) or {}
-    defaults = _parse_rule(raw.get("defaults") or {})
-    sources = {
-        pattern: _parse_rule(rule_data or {})
-        for pattern, rule_data in (raw.get("sources") or {}).items()
-    }
-    return GovernanceConfig(defaults=defaults, sources=sources)
-
-
-# ---------------------------------------------------------------------------
-# Owners models
-# ---------------------------------------------------------------------------
-
-class OwnerOrganizationConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    create: bool = False
-    role: Optional[str] = None
-
-
-class OwnerEntry(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    id: str
-    type: str = "schema:Organization"
-    name: Optional[str] = None
-    did: Optional[str] = None
-    url: Optional[str] = None
-    aliases: List[str] = Field(default_factory=list)
-    organization: Optional[OwnerOrganizationConfig] = None
-
-    @property
-    def has_kc_org(self) -> bool:
-        return self.organization is not None and self.organization.create
-
-
-class OwnersRegistry:
-    def __init__(self, entries: list[OwnerEntry]) -> None:
-        self._by_id: dict[str, OwnerEntry] = {e.id: e for e in entries}
-        for e in entries:
-            for alias in e.aliases:
-                if alias not in self._by_id:
-                    self._by_id[alias] = e
-
-    def by_id(self, alias: str) -> Optional[OwnerEntry]:
-        return self._by_id.get(alias)
-
-    def all(self) -> list[OwnerEntry]:
-        seen: set[str] = set()
-        result = []
-        for e in self._by_id.values():
-            if e.id not in seen:
-                seen.add(e.id)
-                result.append(e)
-        return result
-
-
-def load_owners_yaml(path: Path) -> OwnersRegistry:
-    with path.open("r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f) or {}
-    entries = [OwnerEntry.model_validate(item) for item in (raw.get("owners") or [])]
-    return OwnersRegistry(entries)
+    """Load one governance.yaml. No deployer overlay — this CLI takes explicit paths."""
+    return GovernanceResolver.from_file(path).config
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +107,13 @@ def collect_sources(
 
     The filter is matched against source keys with an implicit leading wildcard
     so that ``ds_dev_gold.*`` matches ``datasets.ds_dev_gold.table``.
+
+    Note that each rule is returned **as declared**, without its file's
+    ``defaults`` merged in — so a dataset that inherits its `ownership` or
+    `access_level` appears to have none, and this CLI falls back to
+    ``"internal"``. That is a real defect, not an intentional policy, and it is
+    left in place only because fixing it changes which Superset roles exist.
+    ``GovernanceResolver.resolve`` is what does it correctly.
     """
     merged: Dict[str, GovernanceRule] = {}
     for cfg in configs:
