@@ -214,14 +214,7 @@ __marimo__/
 .dumpster
 .claudesrc/celine/superset/__pycache__/
 
-
 # Local task overrides: paths that must not be committed (see .agents/plans/)
 taskfile.local.yaml
 
-# Agent material is not published from this repository. What stays is the
-# checker's own configuration; the knowledge, playbooks, plans and work live in
-# the companion named by AGENTS_COMPANION.
-.agents/*
-!.agents/README.md
-!.agents/harness.toml
-!.agents/references.md
+.agents/
