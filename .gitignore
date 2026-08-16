@@ -213,3 +213,16 @@ __marimo__/
 # Dumpster output
 .dumpster
 .claudesrc/celine/superset/__pycache__/
+
+# Execution state: transient, and the plan is what survives
+.agents/work/
+
+# Local task overrides: paths that must not be committed (see .agents/plans/)
+taskfile.local.yaml
+
+# Notes under .agents/ are not published from this repository.
+.agents/*
+!.agents/README.md
+
+# Agent material is not published from this repository.
+.agents/

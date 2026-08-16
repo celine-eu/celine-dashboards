@@ -1,5 +1,14 @@
 version: "3"
 
+# Paths that must not be committed live in taskfile.local.yaml, which is gitignored and
+# optional: this file works without it, and the tasks that need a private location are
+# defined there. Same arrangement as celine-policies.
+includes:
+  local:
+    taskfile: taskfile.local.yaml
+    optional: true
+    flatten: true
+
 tasks:
   setup:
     cmds:
@@ -69,6 +78,9 @@ tasks:
     cmds:
       - uv run --package celine-superset pytest packages/celine-superset/tests/superset/cli/ -v
 
+  # Syncs the governance files this workspace can see. A deployment also has governance
+  # files of its own, in a repository that is not public; the task that reaches them is
+  # defined in taskfile.local.yaml and passes its paths through {{.CLI_ARGS}}.
   governance:sync:
     desc: "Sync Superset dataset governance"
     cmds:
@@ -76,6 +88,5 @@ tasks:
         uv run --package celine-superset celine-superset bootstrap
         uv run --package celine-superset celine-superset governance sync \
           --path '../celine-pipelines/**/governance.yaml' \
-          --path '../../../demo3/**/governance.yaml' \
           --owners '../dataset-api/owners.local.yaml' \
-          --filter 'ds_dev_gold.*'
+          --filter 'ds_dev_gold.*' {{.CLI_ARGS}}
