@@ -23,7 +23,7 @@ jobs:
       version_changed: ${{ steps.check.outputs.version_changed }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Use paths-filter – no git diff needed
       - id: filter
@@ -51,7 +51,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
