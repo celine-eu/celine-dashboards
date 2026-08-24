@@ -36,5 +36,5 @@ ignore_merge_commits = true
 
 [dependency-groups]
 dev = [
-    "python-semantic-release>=9.21.0",
+    "python-semantic-release>=10.6.0",
 ]
