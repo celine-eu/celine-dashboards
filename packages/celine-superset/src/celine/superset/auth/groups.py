@@ -8,7 +8,7 @@ KC claim structure:
 Role mapping:
   Realm  admin | manager (+ plurals)  → Admin             (sysadmin, full bypass)
   Realm  editor | editors             → celine:managers   (cross-org power user)
-  Realm  viewers | *                  → celine:viewers    (cross-org read-only)
+  Realm  any other group              → nothing           (not a cross-org pass)
   Org    admins                       → org:<slug>:admins
   Org    managers                     → org:<slug>:managers
   Org    editors                      → org:<slug>:editors
@@ -17,7 +17,9 @@ Role mapping:
   No matching claim                   → denied
 
 Org users receive only their org:<slug>:<level> role — never a celine:* base role.
-celine:* roles are reserved for realm-level (cross-org) users.
+celine:* roles are reserved for realm-level (cross-org) users, and only the realm groups
+listed above grant one: a participant filed in a realm group such as /viewers is not a
+cross-org user.
 Permissions for org:<slug>:* roles are seeded by `governance sync` from the
 corresponding celine:* role (Gamma for viewers, Alpha for editors/managers/admins).
 """
@@ -61,17 +63,13 @@ def resolve_access(claims: dict) -> ResolvedAccess:
     org_slugs: list[str] = []
     org_role_names: list[str] = []
 
-    # Realm-level groups → cross-org Superset role
+    # Realm-level groups → cross-org Superset role, for allowlisted groups only
     for group in raw_realm:
         name = _group_name(group)
-        if not name:
-            continue
         if name in _REALM_ADMIN_ROLES:
             roles.add("Admin")
         elif name in _REALM_MANAGER_GROUPS:
             roles.add("celine:managers")
-        else:
-            roles.add("celine:viewers")
 
     # Org-level groups → org:<slug>:<level> scoping role only (no celine:* base)
     for org_slug, org_data in organization.items():

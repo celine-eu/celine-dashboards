@@ -107,6 +107,17 @@ def test_unknown_group_denies_access():
     sm.add_user.assert_not_called()
 
 
+def test_realm_viewer_without_org_denied():
+    """A participant filed only in realm /viewers gets no role, so no Superset user."""
+    sm = _make_sm(user=None)
+    claims = {"preferred_username": "paula", "groups": ["/viewers"]}
+
+    result = resolve_superset_user(sm, claims)
+
+    assert result is None
+    sm.add_user.assert_not_called()
+
+
 def test_existing_user_with_no_valid_groups_denied():
     user = Mock()
     sm = _make_sm(user=user)

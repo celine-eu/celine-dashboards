@@ -25,10 +25,11 @@ def test_realm_editors_plural_maps_to_celine_managers():
     assert result.superset_roles == ["celine:managers"]
 
 
-@pytest.mark.parametrize("group", ["viewer", "viewers", "participant", "member", "operator", "anything"])
-def test_realm_reader_maps_to_celine_viewers(group):
+@pytest.mark.parametrize("group", ["viewer", "viewers", "/viewers", "participant", "member", "operator", "anything"])
+def test_realm_group_outside_allowlist_grants_nothing(group):
+    """Only allowlisted realm groups are a cross-org pass — `sync-users` files participants in /viewers."""
     result = resolve_access({"groups": [group]})
-    assert result.superset_roles == ["celine:viewers"]
+    assert result.superset_roles == []
     assert result.org_slugs == []
     assert result.org_role_names == []
 
@@ -97,12 +98,12 @@ def test_actual_dso_admin_claims():
 
 
 def test_actual_rec_participant_claims():
-    """REC participant JWT: realm viewers group + org membership → celine:viewers from realm."""
+    """REC participant JWT: a realm group outside the allowlist + org membership → org role only."""
     result = resolve_access({
         "groups": ["participant"],
         "organization": {"example_rec": {"type": ["rec"]}},
     })
-    assert result.superset_roles == ["celine:viewers"]
+    assert result.superset_roles == []
     assert result.org_slugs == ["example_rec"]
     assert result.org_role_names == ["org:example_rec:viewers"]
 

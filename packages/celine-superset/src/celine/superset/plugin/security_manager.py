@@ -12,6 +12,16 @@ from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
 
 from celine.superset.auth.jwt import extract_jwt_claims
 from celine.superset.auth.user import resolve_superset_user
+from celine.superset.plugin.access import (
+    ACCESS_KEY,
+    ORG_SLUGS_KEY,
+    can_see_dataset,
+    dataset_filter_sql,
+    is_cross_org,
+    is_operator,
+    org_slugs_from_roles,
+    parse_extra,
+)
 from celine.superset.plugin.views import OAuth2ProxyAuthRemoteUserView
 
 logger = logging.getLogger(__name__)
@@ -23,9 +33,6 @@ if not logger.handlers:
     logger.propagate = False
 
 SSO_BASE_URL = os.getenv("CUSTOM_SECURITY_MANAGER_SSO_BASE_URL", "")
-_REALM_BYPASS = frozenset(
-    {"Admin", "celine:admins", "celine:managers", "celine:editors", "celine:viewers"}
-)
 
 # One-time flag: patch applied after first request (app context required)
 _filter_patched = False
@@ -35,16 +42,22 @@ def _user_roles() -> list:
     return getattr(current_user, "roles", None) or []
 
 
+def _user_role_names() -> list[str]:
+    return [r.name for r in _user_roles()]
+
+
+def _is_operator() -> bool:
+    return is_operator(_user_role_names())
+
+
 def _is_realm_user() -> bool:
-    return any(r.name in _REALM_BYPASS for r in _user_roles())
+    """Operators and cross-org realm roles. Neither bypasses the dataset tag check."""
+    names = _user_role_names()
+    return is_operator(names) or is_cross_org(names)
 
 
 def _user_org_slugs() -> set[str]:
-    return {
-        parts[1]
-        for role in _user_roles()
-        if len(parts := role.name.split(":")) == 3 and parts[0] == "org"
-    }
+    return org_slugs_from_roles(_user_role_names())
 
 
 def _patch_dataset_filter_once() -> None:
@@ -64,39 +77,24 @@ def _patch_dataset_filter_once() -> None:
     def _org_aware_filter(base_model: Any, *args: Any) -> Any:
         from sqlalchemy import text
 
-        user_slugs = _user_org_slugs()
+        role_names = _user_role_names()
         username = getattr(current_user, "username", "anonymous")
-
-        logger.info("_org_filter: user=%s slugs=%s", username, user_slugs)
-
-        if not user_slugs:
-            logger.info("_org_filter: no org slugs — using default Superset filter")
-            return _orig(base_model, *args)
 
         # Qualify with the actual table name to avoid ambiguity when DatasourceFilter
         # joins tables + dbs (both have an `extra` column).
-        tname = base_model.__tablename__
+        filter_sql = dataset_filter_sql(base_model.__tablename__, role_names)
+        if filter_sql is None:
+            logger.info("_org_filter: user=%s is an operator — default Superset filter", username)
+            return _orig(base_model, *args)
 
-        open_cond = (
-            f"{tname}.extra IS NULL "
-            f"OR {tname}.extra::jsonb -> 'org_slugs' IS NULL "
-            f"OR {tname}.extra::jsonb -> 'org_slugs' = '[]'::jsonb"
+        full_sql, bind_params = filter_sql
+        logger.info(
+            "_org_filter: user=%s roles=%s sql=%s params=%s",
+            username,
+            role_names,
+            full_sql,
+            bind_params,
         )
-
-        bind_params: dict[str, str] = {}
-        slug_conds: list[str] = []
-        for i, slug in enumerate(sorted(user_slugs)):
-            param = f"slug_{i}"
-            bind_params[param] = json.dumps([slug])
-            slug_conds.append(
-                f"{tname}.extra::jsonb -> 'org_slugs' @> CAST(:{param} AS jsonb)"
-            )
-
-        full_sql = f"({open_cond})"
-        if slug_conds:
-            full_sql += " OR " + " OR ".join(slug_conds)
-
-        logger.info("_org_filter: sql=%s params=%s", full_sql, bind_params)
         return text(full_sql).bindparams(**bind_params)
 
     _vb.get_dataset_access_filters = _org_aware_filter
@@ -104,47 +102,34 @@ def _patch_dataset_filter_once() -> None:
 
 
 def _check_datasource_org(datasource: Any) -> None:
-    """Raise SupersetSecurityException if the org user has no access to datasource.
+    """Raise SupersetSecurityException unless the user may read datasource.
 
-    org_slugs absent or []  → open, passes.
-    org_slugs=[...]         → user must hold org:<slug>:* for at least one slug.
+    Decided by the `celine_access` tag `governance sync` writes — see
+    `celine.superset.plugin.access`. An untagged dataset is Admin only.
     """
     table_name = getattr(datasource, "table_name", repr(datasource))
-    ds_extra = json.loads(getattr(datasource, "extra", None) or "{}")
-    org_slugs = ds_extra.get("org_slugs")
-    user_slugs = _user_org_slugs()
+    ds_extra = parse_extra(getattr(datasource, "extra", None))
+    role_names = _user_role_names()
 
     logger.info(
-        "_check_datasource_org: table=%s org_slugs=%s user_slugs=%s",
+        "_check_datasource_org: table=%s access=%s org_slugs=%s roles=%s",
         table_name,
-        org_slugs,
-        user_slugs,
+        ds_extra.get(ACCESS_KEY),
+        ds_extra.get(ORG_SLUGS_KEY),
+        role_names,
     )
 
-    if not org_slugs:
-        logger.info("_check_datasource_org: table=%s is open — PASS", table_name)
-        return
-
-    if not user_slugs.intersection(org_slugs):
-        logger.warning(
-            "_check_datasource_org: table=%s DENIED — user has %s, need one of %s",
-            table_name,
-            user_slugs,
-            org_slugs,
-        )
+    if not can_see_dataset(ds_extra, role_names):
+        logger.warning("_check_datasource_org: table=%s DENIED", table_name)
         raise SupersetSecurityException(
             SupersetError(
-                message=f"Access to {table_name!r} is restricted to its org members.",
+                message=f"Access to {table_name!r} is restricted.",
                 error_type=SupersetErrorType.DATASOURCE_SECURITY_ACCESS_ERROR,
                 level=ErrorLevel.ERROR,
             )
         )
 
-    logger.info(
-        "_check_datasource_org: table=%s PASS — matched slug(s) %s",
-        table_name,
-        user_slugs.intersection(org_slugs),
-    )
+    logger.info("_check_datasource_org: table=%s PASS", table_name)
 
 
 class OAuth2ProxySecurityManager(SupersetSecurityManager):
@@ -152,7 +137,11 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
     authremoteuserview = OAuth2ProxyAuthRemoteUserView
 
     def can_access_all_datasources(self) -> bool:
-        """Realm-level roles see everything; org users are restricted by org_slugs."""
+        """Operators and cross-org realm roles list every chart and dashboard.
+
+        Not a data bypass: raise_for_access and the dataset list filter still apply
+        the dataset tag to everyone except operators.
+        """
         result = _is_realm_user()
         logger.info(
             "can_access_all_datasources: user=%s roles=%s result=%s",
@@ -181,7 +170,7 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
         schema: Optional[str] = None,
         template_params: Optional[dict[str, Any]] = None,
     ) -> None:
-        """Enforce org-level restrictions on every datasource access path."""
+        """Enforce the dataset tag on every datasource access path, for non-operators."""
         logger.info(
             "raise_for_access: user=%s datasource=%s viz=%s query_context=%s",
             getattr(current_user, "username", "anonymous"),
@@ -189,7 +178,7 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             type(viz).__name__ if viz else None,
             type(query_context).__name__ if query_context else None,
         )
-        if not self.can_access_all_datasources():
+        if not _is_operator():
             ds = datasource
             if ds is None and viz is not None:
                 ds = getattr(viz, "datasource", None)
@@ -255,8 +244,8 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             getattr(current_user, "username", "anonymous"),
             table_name,
         )
-        if self.can_access_all_datasources():
-            logger.info("datasource_access: table=%s — realm bypass PASS", table_name)
+        if _is_operator():
+            logger.info("datasource_access: table=%s — operator PASS", table_name)
             return True
         try:
             _check_datasource_org(datasource)

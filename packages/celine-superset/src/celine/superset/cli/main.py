@@ -30,6 +30,7 @@ from typing import Optional
 import httpx
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich import print as rprint
 
 from celine.superset.cli.client import KcTokenProvider, SupersetClient
@@ -42,11 +43,14 @@ from celine.superset.cli.config import (
     write_instance,
 )
 from celine.superset.cli.governance import (
+    AccessDecision,
     OwnersRegistry,
     collect_sources,
+    decide_dataset,
     expand_globs,
     load_governance_file,
     load_owners_yaml,
+    matching_rules,
     parse_source_key,
 )
 
@@ -467,10 +471,20 @@ def governance_sync(
         "--owners",
         help="Path(s) to owners.yaml files for alias resolution. Repeatable.",
     ),
+    overlay_dirs: Optional[list[Path]] = typer.Option(
+        None,
+        "--overlay-dir",
+        help="Directory holding deployer overlays named governance.<app>.yaml. Repeatable.",
+    ),
     filter_pattern: Optional[str] = typer.Option(
         None,
         "--filter",
         help="fnmatch pattern applied to governance source keys (e.g. 'ds_dev_gold.*').",
+    ),
+    schema: Optional[str] = typer.Option(
+        None,
+        "--schema",
+        help="Schema whose Superset datasets are tagged. Defaults to bootstrap_db_schema.",
     ),
     cleanup: bool = typer.Option(True, "--cleanup/--no-cleanup",
                                   help="Remove stale org:* roles not in the current managed set."),
@@ -478,17 +492,25 @@ def governance_sync(
 ):
     """Sync governance.yaml ownership blocks to Superset groups, roles, and dataset tags.
 
+    Rules are resolved with their file's defaults, and deployer overlays
+    (governance.<app>.yaml beside the file or in --overlay-dir) are merged in.
+
     For every unique owner alias found in filtered governance sources:
       1. Ensures a Superset security group exists (named by owner alias).
       2. Ensures four org-level roles: org:<alias>:viewer/editor/manager/admin.
       3. Links all four roles to the group.
-      4. Tags each dataset's extra.org_slugs so datasource_access can enforce access.
 
-    access_level mapping:
-      open       → dataset tagged org_slugs=[] — any authenticated user sees it
-      internal   → dataset tagged org_slugs=[owner] — only that org's members see it
-      restricted → same as internal
-      secret     → skipped entirely
+    Then every Superset dataset in --schema is tagged with extra.celine_access,
+    which the security manager enforces. It fails closed:
+      open                           → celine_access=open — any authenticated user
+      internal | restricted          → celine_access=org, org_slugs=[owners] — those
+                                       orgs' members and cross-org realm roles
+      pii, row_filters, consent,
+      secret, no org owner, no entry,
+      conflicting entries            → celine_access=operators — Admin only
+
+    Exits 1 when no file, source or owner matches, when a file fails to load, and
+    when any dataset could not be tagged.
 
     Run `governance setup-permissions` afterwards to assign Superset feature permissions
     to the org-level roles based on Gamma (viewer) and Alpha (editor/manager/admin).
@@ -507,23 +529,34 @@ def governance_sync(
     # 1. Expand governance globs and load files
     gov_files = expand_globs(paths)
     if not gov_files:
-        _console.print("[yellow]No governance.yaml files matched the given patterns.[/yellow]")
-        raise typer.Exit(0)
+        _console.print("[red]No governance.yaml files matched the given patterns.[/red]")
+        raise typer.Exit(1)
     _console.print(f"Found [cyan]{len(gov_files)}[/cyan] governance file(s).")
 
-    configs = []
+    overlay_roots = tuple(_Path(d) for d in (overlay_dirs or []))
+    for d in overlay_roots:
+        if not d.is_dir():
+            _console.print(f"[red]--overlay-dir is not a directory: {d}[/red]")
+            raise typer.Exit(1)
+
+    loaded = []
     for gf in gov_files:
         try:
-            configs.append(load_governance_file(gf))
-            _console.print(f"  [dim]loaded[/dim] {gf}")
+            loaded.append(load_governance_file(gf, overlay_roots))
         except Exception as exc:
+            # A file that does not load would leave its datasets without a governance
+            # entry — operators only, not open — but the run must still say so loudly.
             _console.print(f"  [red]error[/red] loading {gf}: {exc}")
+            raise typer.Exit(1)
+        overlay_note = "".join(f"  [dim]+ {o}[/dim]" for o in loaded[-1].overlays)
+        _console.print(f"  [dim]loaded[/dim] {gf}{overlay_note}")
+    configs = [gf.config for gf in loaded]
 
     # 2. Collect matching sources
     sources = collect_sources(configs, filter_pattern)
     if not sources:
-        _console.print("[yellow]No sources matched the filter.[/yellow]")
-        raise typer.Exit(0)
+        _console.print("[red]No sources matched the filter.[/red]")
+        raise typer.Exit(1)
     _console.print(
         f"Matched [cyan]{len(sources)}[/cyan] source(s)"
         + (f" with filter [bold]{filter_pattern}[/bold]" if filter_pattern else "")
@@ -541,8 +574,8 @@ def governance_sync(
                 owner_has_restricted.add(owner.name)
 
     if not owner_sources:
-        _console.print("[yellow]No ownership blocks found in matched sources.[/yellow]")
-        raise typer.Exit(0)
+        _console.print("[red]No ownership blocks found in matched sources.[/red]")
+        raise typer.Exit(1)
 
     # 4. Load owners registry for alias → canonical slug resolution
     registry = OwnersRegistry([])
@@ -649,78 +682,72 @@ def governance_sync(
         if not dry_run and roles_deleted == 0:
             _console.print("  [dim]nothing to clean up[/dim]")
 
-    # 7. Tag datasets with org_slugs for datasource_access enforcement
-    level_counts: dict[str, int] = {}
-    for rule in sources.values():
-        lvl = rule.access_level or "internal"
-        level_counts[lvl] = level_counts.get(lvl, 0) + 1
-
-    level_summary = "  ".join(
-        f"[cyan]{count}[/cyan] {lvl}" for lvl, count in sorted(level_counts.items())
-    )
-    _console.print(f"\n[bold]Tagging datasets…[/bold]  ({level_summary})")
-
-    if dry_run:
-        for source_key, rule in sorted(sources.items()):
-            level = rule.access_level or "internal"
-            if level == "secret":
-                continue
-            owners_list = [o.name for o in rule.ownership]
-            _console.print(
-                f"  [dim]{level:10}[/dim]  {source_key}"
-                + (f"  owners={owners_list}" if owners_list else "  [yellow](no owners)[/yellow]")
-            )
-        _console.print(f"\n[dim][dry-run] no changes made.[/dim]")
-        return
+    # 7. Tag every dataset in the schema with an explicit access decision
+    settings: Settings = ctx.meta["settings"]
+    target_schema = schema or settings.bootstrap_db_schema
 
     all_datasets = client.list_datasets_full()
-    dataset_map: dict[tuple[str, str], int] = {
-        (d["schema"], d["table_name"]): d["id"] for d in all_datasets
-    }
+    schema_datasets = sorted(
+        (d for d in all_datasets if d["schema"] == target_schema),
+        key=lambda d: d["table_name"],
+    )
+    decisions: list[tuple[dict, AccessDecision]] = [
+        (
+            d,
+            decide_dataset(
+                matching_rules(loaded, target_schema, d["table_name"], filter_pattern),
+                registry,
+            ),
+        )
+        for d in schema_datasets
+    ]
 
-    # dataset_id → org_slugs ([] = open, [...] = org-restricted)
-    dataset_org_slugs: dict[int, list[str]] = {}
-    unmatched_count = 0
+    access_counts: dict[str, int] = {}
+    for _, decision in decisions:
+        access_counts[decision.access] = access_counts.get(decision.access, 0) + 1
+    access_summary = "  ".join(
+        f"[cyan]{count}[/cyan] {access}" for access, count in sorted(access_counts.items())
+    )
+    _console.print(
+        f"\n[bold]{'[dry-run] ' if dry_run else ''}Tagging {len(schema_datasets)} dataset(s) "
+        f"in [cyan]{target_schema}[/cyan]…[/bold]  ({access_summary})"
+    )
 
-    for source_key, rule in sorted(sources.items()):
-        level = rule.access_level or "internal"
-        if level == "secret":
-            continue
-
-        parsed = parse_source_key(source_key)
-        if parsed is None:
-            continue
-        schema, table = parsed
-
-        dataset_id = dataset_map.get((schema, table))
-        if dataset_id is None:
-            unmatched_count += 1
-            _console.print(f"  [yellow]skip[/yellow]  {source_key}  — not found in Superset (run bootstrap)")
-            continue
-
-        if level == "open":
-            dataset_org_slugs.setdefault(dataset_id, [])
-            continue
-
-        for owner in rule.ownership:
-            owner_entry = registry.by_id(owner.name)
-            if owner_entry is not None and not owner_entry.has_kc_org:
-                continue  # explicitly no KC org — cannot restrict by org membership
-            canonical = owner_entry.id if owner_entry is not None else owner.name
-            slugs = dataset_org_slugs.setdefault(dataset_id, [])
-            if canonical not in slugs:
-                slugs.append(canonical)
+    registered = {d["table_name"] for d in schema_datasets}
+    unregistered = sorted(
+        key for key in sources
+        if (parsed := parse_source_key(key)) is not None
+        and parsed[0] == target_schema
+        and parsed[1] not in registered
+    )
 
     extra_updated = 0
-    for ds_id, org_slugs in dataset_org_slugs.items():
+    tag_failures = 0
+    for dataset, decision in decisions:
+        slugs = f"  org_slugs={list(decision.org_slugs)}" if decision.org_slugs else ""
+        suspect = decision.reason == "no governance entry" or decision.reason.startswith("conflicting")
+        colour = "yellow" if suspect else "dim"
+        _console.print(
+            f"  {decision.access:10}  {dataset['table_name']}{slugs}"
+            f"  [{colour}]({escape(decision.reason)})[/{colour}]"
+        )
+        if dry_run:
+            continue
         try:
-            client.update_dataset_extra(ds_id, {"org_slugs": org_slugs})
+            client.update_dataset_extra(dataset["id"], decision.as_extra())
             extra_updated += 1
         except Exception as exc:
-            _console.print(f"  [yellow]warn:[/yellow] could not tag dataset id={ds_id}: {exc}")
+            tag_failures += 1
+            _console.print(f"  [red]error:[/red] could not tag dataset id={dataset['id']}: {exc}")
 
-    if unmatched_count:
-        _console.print(f"  [yellow]warn:[/yellow] {unmatched_count} source(s) had no matching dataset.")
+    for key in unregistered:
+        _console.print(f"  [yellow]skip[/yellow]  {key}  — not found in Superset (run bootstrap)")
+    if unregistered:
+        _console.print(f"  [yellow]warn:[/yellow] {len(unregistered)} source(s) had no matching dataset.")
+
+    if dry_run:
+        _console.print(f"\n[dim][dry-run] no changes made.[/dim]")
+        return
 
     # 8. Seed celine:* base roles and propagate to all org roles created above
     managed_org_slugs = sorted({
@@ -735,6 +762,9 @@ def governance_sync(
         f"\n[bold]Done:[/bold] {groups_created} group(s) created, {roles_created} role(s) created, "
         f"{extra_updated} dataset(s) tagged"
     )
+    if tag_failures:
+        _console.print(f"[red]{tag_failures} dataset(s) could not be tagged.[/red]")
+        raise typer.Exit(1)
 
 
 @_governance_app.command("setup-permissions")
