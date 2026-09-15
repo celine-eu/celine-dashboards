@@ -58,12 +58,10 @@ Authentication and authorization flow:
 │   ├── superset/           # Superset configuration and env files
 │   └── jupyter/            # Jupyter server configuration
 │
-├── src/celine/
-│   ├── superset/           # celine.superset — Superset SSO plugin
-│   │   └── cli/            # celine.superset.cli — Superset management CLI
-│   └── jupyter/            # celine.jupyter — Jupyter JWT authorizer
-├── tests/                  # Mirrors src/ layout
-├── pyproject.toml          # Single package `celine-dashboards` with [superset] / [cli] / [jupyter] extras
+├── packages/
+│   ├── celine-superset/    # celine.superset — Superset SSO plugin and management CLI (own src/, tests/)
+│   └── celine-jupyter/     # celine.jupyter — Jupyter JWT authorizer (own src/, tests/)
+├── pyproject.toml          # uv workspace root (members: packages/*), not a package
 │
 ├── Dockerfile              # Superset image
 ├── Dockerfile.jupyter      # Jupyter image

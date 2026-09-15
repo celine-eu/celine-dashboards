@@ -23,12 +23,12 @@ x-common: &common
     - "sso.celine.localhost:host-gateway"
   user: "root"
   environment:
-    PYTHONPATH: /opt/celine-dashboards/src:/app/pythonpath:/app/docker/pythonpath_dev
+    # The plugin source, ahead of the copy baked into the image, so a code change needs a
+    # restart rather than a rebuild. Same arrangement as the jupyter service.
+    PYTHONPATH: /opt/celine-superset/src:/app/pythonpath:/app/docker/pythonpath_dev
   volumes:
     - ./config/superset:/app/docker
-    - ./src:/opt/celine-dashboards/src
-    - ./README.md:/opt/celine-dashboards/README.md
-    - ./pyproject.toml:/opt/celine-dashboards/pyproject.toml
+    - ./packages/celine-superset/src:/opt/celine-superset/src
     - superset_home:/app/superset_home
 
 services:
@@ -51,6 +51,14 @@ services:
         condition: service_completed_successfully
     ports:
       - 8088:8088
+    # The image's own check runs /app/docker/docker-healthcheck.sh, which the
+    # ./config/superset mount above hides.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   superset-init:
     <<: *common

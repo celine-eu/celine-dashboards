@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-cd /app && uv pip install --reinstall "/opt/celine-dashboards[superset]"
-
 case "${1}" in
   worker)
     echo "Starting Celery worker..."

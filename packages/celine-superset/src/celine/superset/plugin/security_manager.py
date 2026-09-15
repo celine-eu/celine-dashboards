@@ -4,7 +4,7 @@ import os
 import urllib.parse
 from typing import Any, Optional
 
-from flask import abort, current_app, g, redirect, request
+from flask import Response, current_app, g, request
 from flask_login import current_user, login_user, logout_user
 from superset.exceptions import SupersetSecurityException
 from superset.security import SupersetSecurityManager
@@ -12,6 +12,7 @@ from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
 
 from celine.superset.auth.jwt import extract_jwt_claims
 from celine.superset.auth.user import resolve_superset_user
+from celine.superset.plugin import refusal
 from celine.superset.plugin.access import (
     ACCESS_KEY,
     ORG_SLUGS_KEY,
@@ -258,12 +259,17 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             return False
 
     @staticmethod
-    def _redirect_to_login() -> None:
-        next_url = urllib.parse.quote(request.full_path.rstrip("?"), safe="")
-        abort(redirect(f"/login/?next={next_url}"))
+    def _unauthenticated() -> Response:
+        g.user = current_user
+        return refusal.unauthenticated()
 
     @staticmethod
-    def before_request() -> None:
+    def _forbidden() -> Response:
+        g.user = current_user
+        return refusal.forbidden()
+
+    @staticmethod
+    def before_request() -> Optional[Response]:
         if request.path.startswith(("/health", "/static", "/favicon.ico")):
             g.user = current_user
             return
@@ -280,11 +286,8 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
         try:
             claims = extract_jwt_claims(request.headers)
             if not claims:
-                logger.warning(
-                    "JWT extraction failed for %s — redirecting to oauth2 proxy",
-                    request.path,
-                )
-                OAuth2ProxySecurityManager._redirect_to_login()
+                logger.warning("JWT extraction failed for %s — not authenticated", request.path)
+                return OAuth2ProxySecurityManager._unauthenticated()
 
             # Re-use the existing session only when the incoming JWT belongs to the
             # same user already logged in — prevents session fixation when a
@@ -305,10 +308,9 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             user = resolve_superset_user(sm, claims)
             if not user:
                 logger.warning(
-                    "User resolution failed for sub=%s — redirecting to oauth2 proxy",
-                    claims.get("sub"),
+                    "User resolution failed for sub=%s — access denied", claims.get("sub")
                 )
-                OAuth2ProxySecurityManager._redirect_to_login()
+                return OAuth2ProxySecurityManager._forbidden()
 
             login_user(user, remember=False)
             g.user = user
@@ -324,4 +326,5 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             logger.exception(
                 "Authentication error in before_request for %s", request.path
             )
-            OAuth2ProxySecurityManager._redirect_to_login()
+            return OAuth2ProxySecurityManager._unauthenticated()
+        return None
