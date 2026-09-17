@@ -26,8 +26,8 @@ def _rule(**fields) -> GovernanceRule:
 
 
 REGISTRY = OwnersRegistry([
-    OwnerEntry.model_validate({"id": "greenland", "aliases": ["rec"], "organization": {"create": True}}),
-    OwnerEntry.model_validate({"id": "set", "aliases": ["dso"], "organization": {"create": True}}),
+    OwnerEntry.model_validate({"id": "example-rec", "aliases": ["rec"], "organization": {"create": True}}),
+    OwnerEntry.model_validate({"id": "example-dso", "aliases": ["dso"], "organization": {"create": True}}),
     OwnerEntry.model_validate({"id": "dwd", "organization": {"create": False}}),
 ])
 
@@ -67,7 +67,7 @@ def test_overlay_dir_is_merged(tmp_path):
     _write(overlay_dir / "governance.rec_metering.yaml", """
         defaults:
           ownership:
-            - name: greenland
+            - name: example-rec
               type: DATA_OWNER
     """)
 
@@ -75,7 +75,7 @@ def test_overlay_dir_is_merged(tmp_path):
 
     assert gf.overlays == (overlay_dir / "governance.rec_metering.yaml",)
     rule = collect_sources([gf.config], None)["datasets.ds_dev_gold.meters_data_1h"]
-    assert [o.name for o in rule.ownership] == ["greenland"]
+    assert [o.name for o in rule.ownership] == ["example-rec"]
 
 
 def test_sibling_overlay_is_merged(tmp_path):
@@ -184,7 +184,7 @@ def test_decide_rule_open():
 def test_decide_rule_org_resolves_aliases(level):
     decision = decide_rule(_rule(access_level=level, ownership=["rec", "dso", "dwd"]), REGISTRY)
     assert decision.access == "org"
-    assert decision.org_slugs == ("greenland", "set")
+    assert decision.org_slugs == ("example-dso", "example-rec")
 
 
 def test_decide_rule_unregistered_owner_uses_alias():
@@ -203,7 +203,7 @@ def test_decide_dataset_without_entry_is_operators():
 def test_decide_dataset_agreeing_entries():
     rule = _rule(access_level="internal", ownership=["rec"])
     matches = [(Path("a.yaml"), "k", rule), (Path("b.yaml"), "k", rule)]
-    assert decide_dataset(matches, REGISTRY).org_slugs == ("greenland",)
+    assert decide_dataset(matches, REGISTRY).org_slugs == ("example-rec",)
 
 
 def test_decide_dataset_conflicting_entries_is_operators():

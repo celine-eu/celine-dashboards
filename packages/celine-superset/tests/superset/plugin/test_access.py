@@ -9,20 +9,20 @@ from celine.superset.plugin.access import (
 )
 
 OPEN = {"celine_access": "open", "org_slugs": []}
-GREENLAND = {"celine_access": "org", "org_slugs": ["greenland"]}
+EXAMPLE_REC = {"celine_access": "org", "org_slugs": ["example-rec"]}
 OPERATORS = {"celine_access": "operators", "org_slugs": []}
 
 ADMIN = ["Admin"]
 REALM_MANAGER = ["celine:managers"]
-GREENLAND_VIEWER = ["org:greenland:viewers"]
-SET_VIEWER = ["org:set:viewers"]
+EXAMPLE_REC_VIEWER = ["org:example-rec:viewers"]
+DSO_VIEWER = ["org:example-dso:viewers"]
 
 
 # ---------------------------------------------------------------------------
 # can_see_dataset
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("roles", [ADMIN, REALM_MANAGER, GREENLAND_VIEWER, SET_VIEWER])
+@pytest.mark.parametrize("roles", [ADMIN, REALM_MANAGER, EXAMPLE_REC_VIEWER, DSO_VIEWER])
 def test_open_dataset_visible_to_every_role(roles):
     assert can_see_dataset(OPEN, roles)
 
@@ -30,17 +30,17 @@ def test_open_dataset_visible_to_every_role(roles):
 @pytest.mark.parametrize("roles,expected", [
     (ADMIN, True),
     (REALM_MANAGER, True),
-    (GREENLAND_VIEWER, True),
-    (SET_VIEWER, False),
+    (EXAMPLE_REC_VIEWER, True),
+    (DSO_VIEWER, False),
 ])
 def test_org_dataset(roles, expected):
-    assert can_see_dataset(GREENLAND, roles) is expected
+    assert can_see_dataset(EXAMPLE_REC, roles) is expected
 
 
 @pytest.mark.parametrize("roles,expected", [
     (ADMIN, True),
     (REALM_MANAGER, False),
-    (GREENLAND_VIEWER, False),
+    (EXAMPLE_REC_VIEWER, False),
     (["celine:viewers"], False),
 ])
 def test_operators_dataset_admin_only(roles, expected):
@@ -54,30 +54,30 @@ def test_operators_dataset_admin_only(roles, expected):
     "not json",
     "[]",
     {"org_slugs": []},              # legacy "open" tag — not honoured
-    {"org_slugs": ["greenland"]},   # legacy org tag — not honoured
+    {"org_slugs": ["example-rec"]},   # legacy org tag — not honoured
     {"celine_access": "public"},    # unknown value
     {"celine_access": "org"},       # org without slugs
-    {"celine_access": "org", "org_slugs": "greenland"},
+    {"celine_access": "org", "org_slugs": "example-rec"},
 ])
 def test_untagged_or_malformed_is_admin_only(extra):
     assert can_see_dataset(extra, ADMIN)
-    assert not can_see_dataset(extra, GREENLAND_VIEWER)
+    assert not can_see_dataset(extra, EXAMPLE_REC_VIEWER)
     assert not can_see_dataset(extra, REALM_MANAGER)
 
 
 def test_extra_as_json_string():
-    assert can_see_dataset(json.dumps(GREENLAND), GREENLAND_VIEWER)
+    assert can_see_dataset(json.dumps(EXAMPLE_REC), EXAMPLE_REC_VIEWER)
 
 
 def test_no_roles_sees_only_open():
     assert can_see_dataset(OPEN, [])
-    assert not can_see_dataset(GREENLAND, [])
+    assert not can_see_dataset(EXAMPLE_REC, [])
 
 
 def test_org_slugs_from_roles_ignores_other_roles():
     assert org_slugs_from_roles(
-        ["Admin", "celine:managers", "org:greenland:viewers", "org:set:admins", "org:bad"]
-    ) == {"greenland", "set"}
+        ["Admin", "celine:managers", "org:example-rec:viewers", "org:example-dso:admins", "org:bad"]
+    ) == {"example-rec", "example-dso"}
 
 
 # ---------------------------------------------------------------------------
@@ -97,10 +97,10 @@ def test_filter_cross_org_sees_open_and_org_never_operators():
 
 
 def test_filter_org_user_binds_slugs():
-    sql, params = dataset_filter_sql("tables", ["org:set:viewers", "org:greenland:admins"])
+    sql, params = dataset_filter_sql("tables", ["org:example-dso:viewers", "org:example-rec:admins"])
     assert sql.startswith("(")
     assert "tables.extra::jsonb" in sql
-    assert params == {"slug_0": '["greenland"]', "slug_1": '["set"]'}
+    assert params == {"slug_0": '["example-dso"]', "slug_1": '["example-rec"]'}
     assert ":slug_0" in sql and ":slug_1" in sql
 
 

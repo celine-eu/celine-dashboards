@@ -84,11 +84,11 @@ def workspace(tmp_path, monkeypatch):
     """)
     _write(tmp_path / "deployment/governance/governance.rec_metering.yaml", """
         defaults:
-          ownership: [greenland]
+          ownership: [example-rec]
     """)
     _write(tmp_path / "owners.yaml", """
         owners:
-          - id: greenland
+          - id: example-rec
             organization: {create: true}
           - id: mt
             organization: {create: false}
@@ -127,13 +127,13 @@ def test_every_dataset_in_schema_gets_an_explicit_decision(workspace, monkeypatc
     assert result.exit_code == 0, result.output
     assert client.extra == {
         1: {"celine_access": "operators", "org_slugs": []},              # pii + row filter
-        2: {"celine_access": "org", "org_slugs": ["greenland"]},          # owner from overlay
+        2: {"celine_access": "org", "org_slugs": ["example-rec"]},          # owner from overlay
         3: {"celine_access": "open", "org_slugs": []},
         4: {"celine_access": "operators", "org_slugs": []},              # secret
         5: {"celine_access": "operators", "org_slugs": []},              # no governance entry
     }
     assert 6 not in client.extra                                          # other schema untouched
-    assert "org:greenland:viewers" in client.roles
+    assert "org:example-rec:viewers" in client.roles
 
 
 def test_overwrites_stale_tags(workspace, monkeypatch):
@@ -176,7 +176,7 @@ def test_conflicting_entries_are_operators_and_printed(workspace, monkeypatch):
         sources:
           datasets.ds_dev_gold.weather_hourly:
             access_level: internal
-            ownership: [greenland]
+            ownership: [example-rec]
     """)
     client = FakeClient(DATASETS)
     monkeypatch.setattr(main, "SupersetClient", lambda settings: client)
@@ -191,4 +191,4 @@ def test_conflicting_entries_are_operators_and_printed(workspace, monkeypatch):
     assert result.exit_code == 0, result.output
     assert client.extra[3] == {"celine_access": "operators", "org_slugs": []}
     assert "conflicting governance entries" in result.output
-    assert "['greenland']" in result.output
+    assert "['example-rec']" in result.output

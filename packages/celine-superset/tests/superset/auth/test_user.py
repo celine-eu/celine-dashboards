@@ -134,16 +134,16 @@ def test_existing_user_with_no_valid_groups_denied():
 
 def test_single_org_viewer_gets_only_org_role():
     """Org viewer gets only org:<slug>:viewers — no celine:* base role."""
-    org_role = Mock(name="org:greenland:viewers")
+    org_role = Mock(name="org:example-rec:viewers")
 
     def _find_role(name):
-        return {"org:greenland:viewers": org_role}.get(name)
+        return {"org:example-rec:viewers": org_role}.get(name)
 
     sm = _make_sm(user=None)
     sm.find_role.side_effect = _find_role
     claims = {
         "preferred_username": "alice",
-        "organization": {"greenland": {"type": ["rec"], "groups": ["/viewers"]}},
+        "organization": {"example-rec": {"type": ["rec"], "groups": ["/viewers"]}},
     }
 
     resolve_superset_user(sm, claims)
@@ -154,16 +154,16 @@ def test_single_org_viewer_gets_only_org_role():
 
 def test_single_org_admins_gets_only_org_role():
     """Org admin gets only org:<slug>:admins — no celine:* base role."""
-    org_role = Mock(name="org:greenland:admins")
+    org_role = Mock(name="org:example-rec:admins")
 
     def _find_role(name):
-        return {"org:greenland:admins": org_role}.get(name)
+        return {"org:example-rec:admins": org_role}.get(name)
 
     sm = _make_sm(user=None)
     sm.find_role.side_effect = _find_role
     claims = {
         "preferred_username": "alice",
-        "organization": {"greenland": {"type": ["rec"], "groups": ["/admins"]}},
+        "organization": {"example-rec": {"type": ["rec"], "groups": ["/admins"]}},
     }
 
     resolve_superset_user(sm, claims)
@@ -174,13 +174,13 @@ def test_single_org_admins_gets_only_org_role():
 
 def test_multi_org_gets_all_org_level_roles():
     """User viewers in two orgs gets both org:<slug>:viewers roles."""
-    org_greenland = Mock(name="org:greenland:viewers")
-    org_set = Mock(name="org:set:viewers")
+    org_example_rec = Mock(name="org:example-rec:viewers")
+    org_dso = Mock(name="org:example-dso:viewers")
 
     def _find_role(name):
         return {
-            "org:greenland:viewers": org_greenland,
-            "org:set:viewers": org_set,
+            "org:example-rec:viewers": org_example_rec,
+            "org:example-dso:viewers": org_dso,
         }.get(name)
 
     sm = _make_sm(user=None)
@@ -188,16 +188,16 @@ def test_multi_org_gets_all_org_level_roles():
     claims = {
         "preferred_username": "bob",
         "organization": {
-            "greenland": {"groups": ["/viewers"]},
-            "set": {"groups": ["/viewers"]},
+            "example-rec": {"groups": ["/viewers"]},
+            "example-dso": {"groups": ["/viewers"]},
         },
     }
 
     resolve_superset_user(sm, claims)
 
     add_call_roles = sm.add_user.call_args[1]["role"]
-    assert org_greenland in add_call_roles
-    assert org_set in add_call_roles
+    assert org_example_rec in add_call_roles
+    assert org_dso in add_call_roles
 
 
 def test_org_role_missing_denies_access():
@@ -210,7 +210,7 @@ def test_org_role_missing_denies_access():
     sm.find_role.return_value = None
     claims = {
         "preferred_username": "carol",
-        "organization": {"greenland": {"groups": ["/viewers"]}},
+        "organization": {"example-rec": {"groups": ["/viewers"]}},
     }
 
     result = resolve_superset_user(sm, claims)

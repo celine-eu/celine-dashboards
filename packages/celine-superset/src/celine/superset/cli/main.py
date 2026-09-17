@@ -792,7 +792,7 @@ def governance_setup_permissions(
     Example:
       celine-superset governance setup-permissions
       celine-superset governance setup-permissions --org '*'
-      celine-superset governance setup-permissions --org greenland --org set
+      celine-superset governance setup-permissions --org example-rec --org example-dso
     """
     client: SupersetClient = ctx.obj
 
