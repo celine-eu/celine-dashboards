@@ -10,9 +10,17 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 RUN uv pip install --system psycopg2-binary sqlalchemy pandas scikit-learn
 
-COPY ./config/jupyter/jupyterhub_config.py /home/jovyan/.jupyter/
+# jupyter_server_config.py is the file Jupyter Server reads (jupyterhub_config.py is not).
+COPY ./config/jupyter/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
 
 COPY ./packages/celine-jupyter /opt/celine-jupyter
 RUN uv pip install --system /opt/celine-jupyter
 
 USER jovyan
+
+# The server is `jupyter celine-server`: Jupyter Server with the CELINE authentication built
+# in (only a platform administrator's access token opens it), which exits instead of serving
+# when that authentication is missing or overridden or $CELINE_JUPYTER_JWT_ISSUER is unset.
+# DOCKER_STACKS_JUPYTER_CMD covers start-notebook.py, the base image's command.
+ENV DOCKER_STACKS_JUPYTER_CMD=celine-server
+CMD ["jupyter", "celine-server"]

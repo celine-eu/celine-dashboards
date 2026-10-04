@@ -59,13 +59,33 @@ To add a new service behind the SSO boundary:
 1. Add the service to `docker-compose.yaml`.
 2. Add a Caddy virtual host using `forward_auth` to oauth2-proxy. The Caddyfile belongs to the integration workspace, not to this repository.
 3. Configure the service to read identity from the injected headers (`X-Auth-Request-User`, `X-Auth-Request-Access-Token`).
-4. Implement authorization logic using the JWT claims (groups, scopes).
+4. Implement authorization logic using the JWT claims: the realm role `platform-admin` (`realm_access.roles`) for platform-wide access, and `organization.<alias>.groups` only for the organisation a request concerns. Never read the top-level `groups` claim.
 
-## Extending Group-to-Role Mappings
+## Changing the Role Mapping
 
-Edit `packages/celine-superset/src/celine/superset/auth/groups.py` to modify Superset role mappings, then rebuild the Superset image.
+Edit `packages/celine-superset/src/celine/superset/auth/groups.py` to modify Superset role mappings. In the compose stack the plugin source is mounted, so a restart picks it up.
 
-For Jupyter, edit `config/jupyter/jupyterhub_config.py` to update `allowed_groups`.
+Jupyter access is `platform-admin` only, in `packages/celine-jupyter/src/celine/jupyter/jwt_authorizer.py`.
+The server reads `~/.jupyter/jupyter_server_config.py` (the compose stack mounts
+`config/jupyter/jupyter_server_config.py` there) and needs `CELINE_JUPYTER_JWT_ISSUER`; see
+[Services](services.md#jupyter).
+
+## Tests
+
+```bash
+uv run --package celine-superset pytest packages/celine-superset/tests -q
+# celine-jupyter is not a workspace member (it needs celine-sdk>=2.0.0 and jupyter-server):
+cd packages/celine-jupyter && uv run pytest -q
+```
+
+The Jupyter startup tests (`tests/test_serverapp.py`) start real servers in subprocesses, both
+`jupyter celine-server` and a stock `jupyter server` with the shipped configuration file, and
+send them RS256 tokens of a local test issuer.
+
+`tests/**/integration/` hold real-token tests against a local Keycloak (dev realm, `oauth2_proxy`
+client, dev users `admin` and `org-admin`). They skip when Keycloak does not answer. The
+legacy-realm-group case also needs `LEGACY_GROUP_TOKEN`, a token minted from a client that
+still maps realm groups.
 
 ## CI and Image Publishing
 

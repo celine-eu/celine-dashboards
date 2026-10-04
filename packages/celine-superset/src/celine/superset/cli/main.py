@@ -379,7 +379,8 @@ _LEVEL_TO_BASE: dict[str, str] = {
 
 
 # PVMs that grant cross-org access — must be stripped from org:<slug>:* roles.
-# Realm-level celine:* roles keep them (all_datasource_access() guards via role name check).
+# The celine:* roles keep them, but they are permission templates only: the plugin grants
+# no user a celine:* role, and holding one by hand passes no dataset tag check.
 _ORG_ROLE_STRIPPED_PVMS = frozenset({
     "all_datasource_access",  # bypass all tables globally
     "all_database_access",    # bypass via can_access_all_databases() → can_access_all_datasources()
@@ -504,7 +505,7 @@ def governance_sync(
     which the security manager enforces. It fails closed:
       open                           → celine_access=open — any authenticated user
       internal | restricted          → celine_access=org, org_slugs=[owners] — those
-                                       orgs' members and cross-org realm roles
+                                       orgs' members (and Admin)
       pii, row_filters, consent,
       secret, no org owner, no entry,
       conflicting entries            → celine_access=operators — Admin only

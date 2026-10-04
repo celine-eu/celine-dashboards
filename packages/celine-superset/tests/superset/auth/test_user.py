@@ -19,7 +19,7 @@ def _make_sm(*, user=None, role=Mock(), registration=True, sync=True):
 def test_existing_user_roles_synced():
     user = Mock()
     sm = _make_sm(user=user)
-    claims = {"preferred_username": "alice", "groups": ["realm_admin"]}
+    claims = {"preferred_username": "alice", "realm_access": {"roles": ["platform-admin"]}}
 
     result = resolve_superset_user(sm, claims)
 
@@ -31,7 +31,7 @@ def test_existing_user_roles_synced():
 def test_existing_user_no_sync_skips_update():
     user = Mock()
     sm = _make_sm(user=user, sync=False)
-    claims = {"preferred_username": "alice", "groups": ["realm_admin"]}
+    claims = {"preferred_username": "alice", "realm_access": {"roles": ["platform-admin"]}}
 
     resolve_superset_user(sm, claims)
     sm.update_user.assert_not_called()
@@ -116,6 +116,58 @@ def test_realm_viewer_without_org_denied():
 
     assert result is None
     sm.add_user.assert_not_called()
+
+
+def test_legacy_realm_admins_group_denied():
+    """A realm /admins group (and the retired realm role admin) still in a token grants nothing."""
+    sm = _make_sm(user=None)
+    claims = {
+        "preferred_username": "legacy-admin",
+        "groups": ["/admins", "admins"],
+        "realm_access": {"roles": ["admin"]},
+    }
+
+    result = resolve_superset_user(sm, claims)
+
+    assert result is None
+    sm.find_role.assert_not_called()
+    sm.add_user.assert_not_called()
+
+
+def test_organisation_admins_does_not_get_admin():
+    """An organisation's admins is that organisation's admin, not Superset Admin."""
+    requested: list[str] = []
+
+    def _find_role(name):
+        requested.append(name)
+        return Mock(name=name)
+
+    sm = _make_sm(user=None)
+    sm.find_role.side_effect = _find_role
+    claims = {
+        "preferred_username": "org-admin",
+        "realm_access": {"roles": ["default-roles-celine", "offline_access"]},
+        "organization": {"example_rec": {"type": ["rec"], "groups": ["/admins"]}},
+    }
+
+    resolve_superset_user(sm, claims)
+
+    assert requested == ["org:example_rec:admins"]
+
+
+def test_platform_admin_gets_admin():
+    requested: list[str] = []
+
+    def _find_role(name):
+        requested.append(name)
+        return Mock(name=name)
+
+    sm = _make_sm(user=None)
+    sm.find_role.side_effect = _find_role
+    claims = {"preferred_username": "admin", "realm_access": {"roles": ["platform-admin"]}}
+
+    assert resolve_superset_user(sm, claims) is not None
+    assert requested == ["Admin"]
 
 
 def test_existing_user_with_no_valid_groups_denied():
@@ -220,12 +272,12 @@ def test_org_role_missing_denies_access():
 
 
 def test_admin_user_gets_no_org_roles():
-    """Realm admin has no org_slugs so no org:<slug>:* roles are added."""
+    """A platform admin with no organisation gets no org:<slug>:* roles."""
     admin = Mock(name="Admin")
 
     sm = _make_sm(user=None)
     sm.find_role.return_value = admin
-    claims = {"preferred_username": "dave", "groups": ["realm_admin"]}
+    claims = {"preferred_username": "dave", "realm_access": {"roles": ["platform-admin"]}}
 
     resolve_superset_user(sm, claims)
 

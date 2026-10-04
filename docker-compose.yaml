@@ -130,8 +130,11 @@ services:
   jupyter:
     build:
       dockerfile: Dockerfile.jupyter
+    # The image's command, `jupyter celine-server`, opens only to a platform administrator's
+    # access token from CELINE_JUPYTER_JWT_ISSUER and does not start without that issuer.
     volumes:
-      - ./config/jupyter/jupyterhub_config.py:/home/jovyan/.jupyter/jupyterhub_config.py
+      # jupyter_server_config.py: the file Jupyter Server reads.
+      - ./config/jupyter/jupyter_server_config.py:/home/jovyan/.jupyter/jupyter_server_config.py:ro
       - ./packages/celine-jupyter/src:/opt/celine-jupyter/src
       - ./data/notebooks:/home/jovyan/notebooks
     restart: unless-stopped
@@ -143,5 +146,8 @@ services:
       - "keycloak.celine.localhost:host-gateway"
     environment:
       PYTHONPATH: /opt/celine-jupyter/src
+      # The one issuer whose tokens are trusted (the realm URL). Tokens of any other issuer,
+      # including another realm of the same Keycloak, are refused before any key is fetched.
+      CELINE_JUPYTER_JWT_ISSUER: ${CELINE_JUPYTER_JWT_ISSUER:-http://keycloak.celine.localhost/realms/celine}
     ports:
       - 8888:8888

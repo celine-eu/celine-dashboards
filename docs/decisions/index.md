@@ -36,5 +36,7 @@ edited to say something else.
 
 ## The records
 
-<TODO: a one-line table as they accumulate. An index nobody updates is worse than none,
-so either keep it or delete this section.>
+| | |
+|---|---|
+| [ADR-0001](ADR-0001-authority-comes-from-the-platform-role-and-one-organisation.md) | authority comes from the platform role and from one organisation, nothing else |
+| [ADR-0002](ADR-0002-jupyter-fails-closed-and-trusts-one-issuer.md) | Jupyter fails closed: its own server command, one trusted issuer, no server token |

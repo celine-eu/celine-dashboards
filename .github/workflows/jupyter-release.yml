@@ -6,7 +6,7 @@ on:
             - main
         paths:
             - "Dockerfile.jupyter"
-            - "config/jupyter/jupyterhub_config.py"
+            - "config/jupyter/jupyter_server_config.py"
             - "packages/celine-jupyter/**"
             - "version.jupyter.txt"
 

@@ -15,8 +15,9 @@ from celine.superset.auth.groups import resolve_access
 logger = logging.getLogger(__name__)
 
 # Comma-separated KC client_id values whose service-account tokens receive
-# Admin role unconditionally (no groups claim required).
-# These are trusted machine clients (e.g. the CLI) — not end users.
+# Admin role unconditionally (service tokens carry no realm_access, so no
+# platform-admin role). These are trusted machine clients (e.g. the CLI) — not
+# end users.
 _CLI_ADMIN_AZP: frozenset[str] = frozenset(
     c.strip()
     for c in os.getenv("CUSTOM_SECURITY_MANAGER_CLI_ADMIN_AZP", "celine-cli").split(",")
@@ -44,8 +45,10 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
     Upsert a Superset user from verified KC JWT claims.
 
     - KC service accounts (azp in CLI_ADMIN_AZP) always get Admin role.
-    - Other users: Superset roles resolved from KC group paths via resolve_access().
-    - Users with no matching KC group are denied (returns None).
+    - Other users: Superset roles resolved by resolve_access(): the realm role
+      platform-admin → Admin, organisation groups → org:<slug>:<level>. Realm groups
+      (the top-level `groups` claim) grant nothing.
+    - Users with neither are denied (returns None).
     - Stores org_slugs as JSON in user.extra for downstream RLS setup.
     """
     username = (

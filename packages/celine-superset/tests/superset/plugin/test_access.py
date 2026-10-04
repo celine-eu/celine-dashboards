@@ -13,7 +13,8 @@ EXAMPLE_REC = {"celine_access": "org", "org_slugs": ["example-rec"]}
 OPERATORS = {"celine_access": "operators", "org_slugs": []}
 
 ADMIN = ["Admin"]
-REALM_MANAGER = ["celine:managers"]
+# A celine:* role is a permission template only: holding one reaches no organisation.
+CELINE_TEMPLATE = ["celine:managers"]
 EXAMPLE_REC_VIEWER = ["org:example-rec:viewers"]
 DSO_VIEWER = ["org:example-dso:viewers"]
 
@@ -22,14 +23,15 @@ DSO_VIEWER = ["org:example-dso:viewers"]
 # can_see_dataset
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("roles", [ADMIN, REALM_MANAGER, EXAMPLE_REC_VIEWER, DSO_VIEWER])
+@pytest.mark.parametrize("roles", [ADMIN, CELINE_TEMPLATE, EXAMPLE_REC_VIEWER, DSO_VIEWER])
 def test_open_dataset_visible_to_every_role(roles):
     assert can_see_dataset(OPEN, roles)
 
 
 @pytest.mark.parametrize("roles,expected", [
     (ADMIN, True),
-    (REALM_MANAGER, True),
+    (CELINE_TEMPLATE, False),
+    (["celine:admins", "celine:viewers"], False),
     (EXAMPLE_REC_VIEWER, True),
     (DSO_VIEWER, False),
 ])
@@ -39,7 +41,7 @@ def test_org_dataset(roles, expected):
 
 @pytest.mark.parametrize("roles,expected", [
     (ADMIN, True),
-    (REALM_MANAGER, False),
+    (CELINE_TEMPLATE, False),
     (EXAMPLE_REC_VIEWER, False),
     (["celine:viewers"], False),
 ])
@@ -62,7 +64,7 @@ def test_operators_dataset_admin_only(roles, expected):
 def test_untagged_or_malformed_is_admin_only(extra):
     assert can_see_dataset(extra, ADMIN)
     assert not can_see_dataset(extra, EXAMPLE_REC_VIEWER)
-    assert not can_see_dataset(extra, REALM_MANAGER)
+    assert not can_see_dataset(extra, CELINE_TEMPLATE)
 
 
 def test_extra_as_json_string():
@@ -88,11 +90,10 @@ def test_filter_none_for_operator():
     assert dataset_filter_sql("tables", ADMIN) is None
 
 
-def test_filter_cross_org_sees_open_and_org_never_operators():
-    sql, params = dataset_filter_sql("tables", REALM_MANAGER)
-    assert "= 'open'" in sql
-    assert "= 'org'" in sql
-    assert "operators" not in sql
+def test_filter_celine_template_role_sees_only_open():
+    """No cross-organisation role: a celine:* role filters like no role at all."""
+    sql, params = dataset_filter_sql("tables", CELINE_TEMPLATE)
+    assert sql == "((tables.extra::jsonb ->> 'celine_access') = 'open')"
     assert params == {}
 
 

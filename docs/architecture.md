@@ -40,9 +40,15 @@ oauth2-proxy injects the following headers into upstream requests:
 | `X-Auth-Request-User` | Username from Keycloak |
 | `X-Auth-Request-Email` | Email from Keycloak |
 | `X-Auth-Request-Access-Token` | Keycloak access token (JWT) |
-| `X-Auth-Request-Groups` | Comma-separated group memberships |
 
 Superset and Jupyter each consume these headers to establish the user session and enforce authorization locally. No direct Keycloak calls are made by the applications at request time.
+
+Authorization is decided from the **access token only**, never from a groups header. The
+token carries two levels of authority: the realm role `platform-admin`
+(`realm_access.roles`), the only platform-wide grant, and each organisation's own groups
+(`organization.<alias>.groups`), valid only inside that organisation. There are no realm
+groups; a realm group still present in a token grants nothing. See
+[authentication.md](authentication.md).
 
 ## Multi-Host Setup
 

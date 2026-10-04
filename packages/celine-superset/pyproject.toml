@@ -69,3 +69,6 @@ include = ["src/celine"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: needs the local Keycloak (real tokens); skipped when it is unreachable",
+]

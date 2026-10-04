@@ -53,7 +53,6 @@ Authentication and authorization flow:
 .
 ├── config/
 │   ├── caddy/              # Reverse proxy configuration
-│   ├── keycloak/           # Realm, clients, groups, and demo users
 │   ├── oauth2-proxy/       # oauth2-proxy configuration
 │   ├── superset/           # Superset configuration and env files
 │   └── jupyter/            # Jupyter server configuration
@@ -84,33 +83,33 @@ Authentication and authorization flow:
   - validates JWT signatures via Keycloak JWKS
   - auto‑creates users on first login
   - synchronizes roles on each login
-  - maps Keycloak groups to Superset roles
+  - maps the Keycloak realm role `platform-admin` and organisation groups to Superset roles
 
-Group‑to‑role mapping is defined in:
+The mapping is defined in `packages/celine-superset/src/celine/superset/auth/groups.py`.
+There are exactly two levels:
 
-```
-src/celine/superset/auth/groups.py
-```
+| Token claim | Superset role |
+|---|---|
+| realm role `platform-admin` (`realm_access.roles`) | `Admin` |
+| `organization.<slug>.groups`: `admins`, `managers`, `editors` | `org:<slug>:<level>` |
+| `organization.<slug>.groups`: `viewers`, any other group, or membership alone | `org:<slug>:viewers` |
 
-Example:
-
-```python
-GROUP_TO_SUPERSET_ROLE = {
-    "admins": "Admin",
-    "managers": "Alpha",
-    "editors": "Beta",
-    "viewers": "Gamma",
-}
-```
+Realm groups (the top-level `groups` claim, e.g. `/admins`) and every other realm role grant
+nothing. An organisation's `admins` is that organisation's admin only.
 
 ### Jupyter
 
-- No local token or password authentication
-- Access controlled by a custom JWT authorizer
-- Authorization decisions based on JWT group claims
+- No server token, password or login page: only an access token opens it
+- Runs as `jupyter celine-server`, Jupyter Server with the CELINE identity provider and
+  authorizer built in
+- Trusts one issuer, `CELINE_JUPYTER_JWT_ISSUER` (the realm URL); tokens of any other issuer are
+  refused before any key is fetched
+- Fails closed: it does not start when that issuer is unset, when the authentication cannot be
+  loaded, or when configuration replaces it or re-opens unauthenticated access
 - Intended for notebook execution under the same SSO boundary
 
-Only users in the `/admins` group currently receive full access by default.
+Only holders of the Keycloak realm role `platform-admin` get access (all or nothing). An
+organisation's `admins` group and a realm group such as `/admins` grant nothing.
 
 ---
 
@@ -118,19 +117,15 @@ Only users in the `/admins` group currently receive full access by default.
 
 ### Keycloak
 
-The repository ships with a ready‑to‑import Keycloak realm definition:
+The realm is not defined here: `celine-policies` reconciles it. This stack consumes:
 
 - Realm: `celine`
 - Clients:
-  - `oauth2_proxy` (browser SSO)
+  - `oauth2_proxy` (browser SSO); its access token must carry `realm_access.roles`
+    (the `roles` client scope) and `organization` (request `organization:*`)
   - `celine-cli` (service and CLI tokens)
-- Groups:
-  - `/admins`
-  - `/managers`
-  - `/editors`
-  - `/viewers`
-
-Demo users are included for local development.
+- Platform administrators: the realm role `platform-admin`
+- Organisation roles: each organisation's `admins`, `managers`, `editors`, `viewers` groups
 
 ### oauth2‑proxy
 

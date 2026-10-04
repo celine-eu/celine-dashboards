@@ -18,7 +18,6 @@ from celine.superset.plugin.access import (
     ORG_SLUGS_KEY,
     can_see_dataset,
     dataset_filter_sql,
-    is_cross_org,
     is_operator,
     org_slugs_from_roles,
     parse_extra,
@@ -49,12 +48,6 @@ def _user_role_names() -> list[str]:
 
 def _is_operator() -> bool:
     return is_operator(_user_role_names())
-
-
-def _is_realm_user() -> bool:
-    """Operators and cross-org realm roles. Neither bypasses the dataset tag check."""
-    names = _user_role_names()
-    return is_operator(names) or is_cross_org(names)
 
 
 def _user_org_slugs() -> set[str]:
@@ -138,12 +131,12 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
     authremoteuserview = OAuth2ProxyAuthRemoteUserView
 
     def can_access_all_datasources(self) -> bool:
-        """Operators and cross-org realm roles list every chart and dashboard.
+        """Only operators (Admin, i.e. the realm role platform-admin).
 
-        Not a data bypass: raise_for_access and the dataset list filter still apply
-        the dataset tag to everyone except operators.
+        There is no cross-organisation role: organisation users, and anyone holding a
+        celine:* template role, are scoped by the dataset tag.
         """
-        result = _is_realm_user()
+        result = _is_operator()
         logger.info(
             "can_access_all_datasources: user=%s roles=%s result=%s",
             getattr(current_user, "username", "anonymous"),

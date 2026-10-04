@@ -13,16 +13,20 @@ The Keycloak realm is **not defined in this repository**. Realm, clients and sco
 | `oauth2_proxy` | Browser SSO flows |
 | `celine-cli` | Service and CLI token issuance |
 
-**Groups:**
+**Authority — exactly two levels:**
 
-| Group | Default Role |
-|---|---|
-| `/admins` | Full access |
-| `/managers` | Manager-level access |
-| `/editors` | Editor-level access |
-| `/viewers` | Read-only access |
+| Level | Carried by | Grants here |
+|---|---|---|
+| platform | realm role `platform-admin`, in `realm_access.roles` | Superset `Admin`; Jupyter access |
+| organisation | the organisation's `admins`, `managers`, `editors`, `viewers` groups, in `organization.<alias>.groups` | Superset `org:<alias>:<level>`, in that organisation only |
 
-Demo users for each group are included in the realm export for local development.
+There are no realm groups. A realm group still present in a token (`groups: ["/admins"]`)
+grants nothing, and neither does any realm role other than `platform-admin`.
+`realm_access.roles` is in the **access token** only, which is the token oauth2-proxy
+forwards; the `oauth2_proxy` client needs the `roles` client scope for it.
+
+The dev realm (from `celine-policies`) has demo users: `admin` holds `platform-admin`,
+`org-admin` is an `example_rec` admin, `org-viewer` an `example_rec` viewer.
 
 ## oauth2-proxy Setup
 

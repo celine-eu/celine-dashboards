@@ -1,32 +1,42 @@
 """
 Map Keycloak claims to Superset roles and extract org membership.
 
-KC claim structure:
-  claims.groups                         — realm-level groups (or None)
-  claims.organization.<slug>.groups     — org-level groups per org
+There are exactly two levels of authority, and they are read from two different claims:
+
+  claims.realm_access.roles             — platform level: realm roles
+  claims.organization.<slug>.groups     — organisation level: valid in that org only
 
 Role mapping:
-  Realm  admin | manager (+ plurals)  → Admin             (sysadmin, full bypass)
-  Realm  editor | editors             → celine:managers   (cross-org power user)
-  Realm  any other group              → nothing           (not a cross-org pass)
-  Org    admins                       → org:<slug>:admins
-  Org    managers                     → org:<slug>:managers
-  Org    editors                      → org:<slug>:editors
-  Org    viewers | *                  → org:<slug>:viewers
-  Org member, no group                → org:<slug>:viewers
-  No matching claim                   → denied
+  Realm role  platform-admin            → Admin             (sysadmin, full bypass)
+  Org    admins                         → org:<slug>:admins
+  Org    managers                       → org:<slug>:managers
+  Org    editors                        → org:<slug>:editors
+  Org    viewers | *                    → org:<slug>:viewers
+  Org member, no group                  → org:<slug>:viewers
+  Anything else                         → denied
 
-Org users receive only their org:<slug>:<level> role — never a celine:* base role.
-celine:* roles are reserved for realm-level (cross-org) users, and only the realm groups
-listed above grant one: a participant filed in a realm group such as /viewers is not a
-cross-org user.
-Permissions for org:<slug>:* roles are seeded by `governance sync` from the
-corresponding celine:* role (Gamma for viewers, Alpha for editors/managers/admins).
+The top-level `groups` claim (realm groups such as `/admins`) is never read: a realm group
+still present in a token grants nothing. Neither do realm roles other than
+`platform-admin` (the retired `admin`/`manager`/`editor`/`viewer` included), nor
+`resource_access.<client>.roles`.
+
+An organisation's `admins` is that organisation's admin, never a platform admin, and no
+organisation group reaches another organisation: there is no cross-organisation role.
+The celine:* roles are only the permission templates `governance sync` copies onto
+org:<slug>:* roles (Gamma for viewers, Alpha for editors/managers/admins); nobody is
+granted one at login.
+
+Why not celine-sdk: this module runs inside Superset's own interpreter, and
+apache-superset 6.0.0 pins `cryptography<45` while celine-sdk needs `>=46`. The two
+readers below mirror `celine.sdk.auth.realm_roles` and `organization_groups`; keep them
+in step.
 """
 from dataclasses import dataclass, field
+from typing import Any
 
-_REALM_ADMIN_ROLES = frozenset({"admin", "realm_admin", "admins", "manager", "realm_manager", "managers"})
-_REALM_MANAGER_GROUPS = frozenset({"editor", "editors"})
+#: The one platform-wide grant: a Keycloak realm role. Same value as
+#: `celine.sdk.auth.PLATFORM_ADMIN_ROLE`.
+PLATFORM_ADMIN_ROLE = "platform-admin"
 
 # KC org group name → org role level suffix
 _ORG_LEVEL_MAP = {"admins": "admins", "managers": "managers", "editors": "editors"}
@@ -41,57 +51,78 @@ class ResolvedAccess:
     org_role_names: list[str] = field(default_factory=list)
 
 
+def realm_roles(claims: dict) -> list[str]:
+    """Realm roles from `realm_access.roles` only. Deduplicated, order kept.
+
+    Never `groups`, a top-level `roles`, or `resource_access`. Anything of the wrong
+    shape gives [].
+    """
+    access = claims.get("realm_access") if isinstance(claims, dict) else None
+    if not isinstance(access, dict):
+        return []
+    roles = access.get("roles")
+    if not isinstance(roles, (list, tuple)):
+        return []
+    out: list[str] = []
+    for role in roles:
+        if isinstance(role, str) and role and role not in out:
+            out.append(role)
+    return out
+
+
+def is_platform_admin(claims: dict) -> bool:
+    """True exactly when the caller holds the realm role `platform-admin`."""
+    return PLATFORM_ADMIN_ROLE in realm_roles(claims)
+
+
 def _group_name(group: str) -> str:
     """Return terminal path segment: '/admins' → 'admins', 'viewers' → 'viewers'."""
     return group.strip("/").rsplit("/", 1)[-1] if group else ""
+
+
+def _org_groups(org_data: Any) -> list[str]:
+    """Group names held inside one organisation. A non-list `groups` is ignored."""
+    if not isinstance(org_data, dict):
+        return []
+    groups = org_data.get("groups")
+    if not isinstance(groups, (list, tuple)):
+        return []
+    out: list[str] = []
+    for group in groups:
+        if not isinstance(group, str):
+            continue
+        name = _group_name(group)
+        if name and name not in out:
+            out.append(name)
+    return out
 
 
 def resolve_access(claims: dict) -> ResolvedAccess:
     """
     Parse KC JWT claims into Superset role names, org slugs, and org-level role names.
 
-    Reads realm groups from claims.groups and org groups from
-    claims.organization.<slug>.groups.
+    Platform level from `realm_access.roles` (`platform-admin` only); organisation level
+    from `organization.<slug>.groups`, each scoped to its own slug.
     """
-    raw_realm = claims.get("groups") or []
-    if isinstance(raw_realm, str):
-        raw_realm = [raw_realm]
-
-    organization: dict = claims.get("organization") or {}
-
     roles: set[str] = set()
     org_slugs: list[str] = []
     org_role_names: list[str] = []
 
-    # Realm-level groups → cross-org Superset role, for allowlisted groups only
-    for group in raw_realm:
-        name = _group_name(group)
-        if name in _REALM_ADMIN_ROLES:
-            roles.add("Admin")
-        elif name in _REALM_MANAGER_GROUPS:
-            roles.add("celine:managers")
+    if is_platform_admin(claims):
+        roles.add("Admin")
+
+    organization = claims.get("organization") if isinstance(claims, dict) else None
+    if not isinstance(organization, dict):
+        organization = {}
 
     # Org-level groups → org:<slug>:<level> scoping role only (no celine:* base)
-    for org_slug, org_data in organization.items():
-        if org_slug not in org_slugs:
-            org_slugs.append(org_slug)
-
-        org_groups = (org_data or {}).get("groups") or []
-        if isinstance(org_groups, str):
-            org_groups = [org_groups]
-
-        if org_groups:
-            for group in org_groups:
-                name = _group_name(group)
-                if not name:
-                    continue
-                level = _ORG_LEVEL_MAP.get(name, "viewers")
-                org_role_name = f"org:{org_slug}:{level}"
-                if org_role_name not in org_role_names:
-                    org_role_names.append(org_role_name)
-        else:
-            # Org member with no explicit group → minimum read access
-            org_role_name = f"org:{org_slug}:viewers"
+    for org_slug in sorted(str(slug) for slug in organization):
+        org_slugs.append(org_slug)
+        names = _org_groups(organization.get(org_slug))
+        # Org member with no explicit group → minimum read access
+        levels = [_ORG_LEVEL_MAP.get(name, "viewers") for name in names] or ["viewers"]
+        for level in levels:
+            org_role_name = f"org:{org_slug}:{level}"
             if org_role_name not in org_role_names:
                 org_role_names.append(org_role_name)
 
