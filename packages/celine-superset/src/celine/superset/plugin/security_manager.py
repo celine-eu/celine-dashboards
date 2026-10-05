@@ -23,13 +23,11 @@ from celine.superset.plugin.access import (
 )
 from celine.superset.plugin.views import OAuth2ProxyAuthRemoteUserView
 
+# Level and handler come from Superset's logging config (`LOG_LEVEL`, set from
+# SUPERSET_LOG_LEVEL): the per-request access traces below are DEBUG and appear only when
+# that is configured. Sign-ins, refusals and failures stay at INFO and above; who read what
+# is the audit record on `celine.audit` (`audit.py`), which is held at INFO on its own.
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-if not logger.handlers:
-    _h = logging.StreamHandler()
-    _h.setLevel(logging.DEBUG)
-    logger.addHandler(_h)
-    logger.propagate = False
 
 SSO_BASE_URL = os.getenv("CUSTOM_SECURITY_MANAGER_SSO_BASE_URL", "")
 
@@ -86,11 +84,11 @@ def _patch_dataset_filter_once() -> None:
         # joins tables + dbs (both have an `extra` column).
         filter_sql = dataset_filter_sql(base_model.__tablename__, role_names)
         if filter_sql is None:
-            logger.info("_org_filter: sub=%s is an operator — default Superset filter", _caller())
+            logger.debug("_org_filter: sub=%s is an operator — default Superset filter", _caller())
             return _orig(base_model, *args)
 
         full_sql, bind_params = filter_sql
-        logger.info(
+        logger.debug(
             "_org_filter: sub=%s roles=%s sql=%s params=%s",
             _caller(),
             role_names,
@@ -113,7 +111,7 @@ def _check_datasource_org(datasource: Any) -> None:
     ds_extra = parse_extra(getattr(datasource, "extra", None))
     role_names = _user_role_names()
 
-    logger.info(
+    logger.debug(
         "_check_datasource_org: table=%s access=%s org_slugs=%s roles=%s",
         table_name,
         ds_extra.get(ACCESS_KEY),
@@ -131,7 +129,7 @@ def _check_datasource_org(datasource: Any) -> None:
             )
         )
 
-    logger.info("_check_datasource_org: table=%s PASS", table_name)
+    logger.debug("_check_datasource_org: table=%s PASS", table_name)
 
 
 def _token_presented() -> bool:
@@ -161,7 +159,7 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
         celine:* template role, are scoped by the dataset tag.
         """
         result = _is_operator()
-        logger.info(
+        logger.debug(
             "can_access_all_datasources: sub=%s roles=%s result=%s",
             _caller(),
             [r.name for r in _user_roles()],
@@ -189,7 +187,7 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
         template_params: Optional[dict[str, Any]] = None,
     ) -> None:
         """Enforce the dataset tag on every datasource access path, for non-operators."""
-        logger.info(
+        logger.debug(
             "raise_for_access: sub=%s datasource=%s viz=%s query_context=%s",
             _caller(),
             getattr(datasource, "table_name", datasource),
@@ -226,13 +224,13 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
                         )
                     )
             else:
-                logger.info("raise_for_access: no datasource in args — skipping org check")
+                logger.debug("raise_for_access: no datasource in args — skipping org check")
 
         if _user_org_slugs():
             # Org user: our org check is the authoritative datasource gate.
             # Call super() without datasource-related args so its native PVM checks
             # (which org users don't have) don't block access we already approved.
-            logger.info("raise_for_access: org user — calling super() without datasource args")
+            logger.debug("raise_for_access: org user — calling super() without datasource args")
             super().raise_for_access(
                 dashboard=dashboard,
                 chart=chart,
@@ -263,13 +261,13 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
     def datasource_access(self, datasource: Any) -> bool:
         """Legacy hook — kept for older Superset code paths."""
         table_name = getattr(datasource, "table_name", repr(datasource))
-        logger.info(
+        logger.debug(
             "datasource_access: sub=%s table=%s",
             _caller(),
             table_name,
         )
         if _is_operator():
-            logger.info("datasource_access: table=%s — operator PASS", table_name)
+            logger.debug("datasource_access: table=%s — operator PASS", table_name)
             return True
         try:
             _check_datasource_org(datasource)

@@ -98,20 +98,10 @@ def sm_mod(monkeypatch):
 
 @pytest.fixture
 def logs(caplog):
-    """Every record of the plugin's loggers, at every level (the plugin logger does not propagate)."""
-    loggers = [
-        logging.getLogger("celine.superset.plugin.security_manager"),
-        logging.getLogger(user_mod.__name__),
-    ]
-    saved = [(lg, lg.level) for lg in loggers]
-    for lg in loggers:
-        lg.setLevel(logging.DEBUG)
-        lg.addHandler(caplog.handler)
-    caplog.handler.setLevel(logging.DEBUG)
-    yield caplog
-    for lg, level in saved:
-        lg.removeHandler(caplog.handler)
-        lg.setLevel(level)
+    """Every record of the plugin's loggers, at every level."""
+    caplog.set_level(logging.DEBUG, logger="celine.superset.plugin.security_manager")
+    caplog.set_level(logging.DEBUG, logger=user_mod.__name__)
+    return caplog
 
 
 def _role(name):
@@ -230,3 +220,60 @@ def test_user_resolution_logs_the_sub_only(logs, options):
 
     _assert_no_personal_value(logs)
     assert any(SUB in m for m in _messages(logs))
+
+
+# -- the level comes from Superset's logging config ------------------------------------------
+
+
+def test_the_plugin_logger_follows_the_logging_config(sm_mod):
+    plugin = logging.getLogger(sm_mod.__name__)
+    assert plugin.level == logging.NOTSET
+    assert plugin.handlers == []
+    assert plugin.propagate is True
+
+
+def test_at_info_the_access_traces_are_off_and_refusals_and_sign_ins_stay(
+    sm_mod, caplog, monkeypatch
+):
+    """`LOG_LEVEL` INFO (Superset's default): no line per access check, the rest unchanged."""
+    caplog.set_level(logging.INFO)
+    manager = sm_mod.OAuth2ProxySecurityManager.__new__(sm_mod.OAuth2ProxySecurityManager)
+    monkeypatch.setattr(sm_mod, "current_user", _user("org:example-rec:viewers"))
+    with app.test_request_context("/api/v1/chart/data"):
+        audit.remember_claims(CLAIMS)
+        manager.raise_for_access(datasource=_dataset("org", ["example-rec"]))
+        assert manager.datasource_access(_dataset("operators", [])) is False
+        manager.can_access_all_datasources()
+
+    plugin = [r for r in caplog.records if r.name == sm_mod.__name__]
+    assert [r.levelno for r in plugin] == [logging.WARNING, logging.WARNING]
+    assert all("DENIED" in r.getMessage() for r in plugin)
+
+    caplog.clear()
+    monkeypatch.setattr(sm_mod, "current_user", SimpleNamespace(is_anonymous=True))
+    monkeypatch.setattr(sm_mod, "extract_jwt_claims", lambda headers: dict(CLAIMS))
+    monkeypatch.setattr(
+        sm_mod, "resolve_superset_user", lambda sm, claims: _user("org:example-rec:viewers")
+    )
+    monkeypatch.setattr(sm_mod, "login_user", lambda user, remember=False: True)
+    monkeypatch.setattr(sm_mod, "_patch_dataset_filter_once", lambda: None)
+    app.appbuilder = SimpleNamespace(sm=Mock())
+    with app.test_request_context("/api/v1/dashboard/", headers={"Authorization": "Bearer x"}):
+        assert sm_mod.OAuth2ProxySecurityManager.before_request() is None
+
+    signed_in = [r for r in caplog.records if r.name == sm_mod.__name__]
+    assert [r.levelno for r in signed_in] == [logging.INFO]
+    assert "Authenticated sub=" + SUB in signed_in[0].getMessage()
+
+
+def test_at_debug_the_access_traces_are_on(sm_mod, caplog, monkeypatch):
+    caplog.set_level(logging.DEBUG)
+    manager = sm_mod.OAuth2ProxySecurityManager.__new__(sm_mod.OAuth2ProxySecurityManager)
+    monkeypatch.setattr(sm_mod, "current_user", _user("org:example-rec:viewers"))
+    with app.test_request_context("/api/v1/chart/data"):
+        audit.remember_claims(CLAIMS)
+        manager.raise_for_access(datasource=_dataset("org", ["example-rec"]))
+
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any(m.startswith("raise_for_access: sub=" + SUB) for m in messages)
+    assert any("PASS" in m for m in messages)

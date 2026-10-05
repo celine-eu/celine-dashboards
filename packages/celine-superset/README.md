@@ -51,6 +51,10 @@ the platform's shape (`celine.sdk.audit`: `event`, `service`, `sub`, `client_id`
   text is never in a record.
 - `route` is the Flask rule (`/api/v1/dashboard/<id_or_slug>`), never the path or query.
 - Superset's own event log (the `logs` table) is unchanged.
+- `service_account` is the plugin's reading of the token: true for a client-credentials token
+  (`preferred_username` `service-account-…`, `gty`, a `client_id` with no person behind it,
+  Keycloak's grant in `jti`), false for a person's. The plugin cannot install `celine-sdk`
+  (Superset pins `cryptography<45`), so the record is written by its own copy of the emitter.
 
 ## Log lines
 
@@ -59,6 +63,12 @@ The plugin's operational log lines (`celine.superset.plugin.security_manager`,
 the caller by the token's `sub`, the value the audit record carries, at every level. The
 Superset username (the token's `preferred_username`, often an email address), the email and the
 given and family names are never in a log line; a new user is logged with its `sub` and roles.
+
+Their level and handler are Superset's (`LOG_LEVEL`, from `SUPERSET_LOG_LEVEL`, default
+`INFO`). At `INFO` the plugin logs a sign-in (`Authenticated sub=… azp=…`), a refusal and a
+failed check (`WARNING` and above); the per-request access traces (the dataset filter,
+`raise_for_access`, `datasource_access`, a check that passed) are `DEBUG` and appear only when
+`SUPERSET_LOG_LEVEL=debug`. Who read what is the audit record, held at `INFO` whatever the level.
 
 ## Tests
 

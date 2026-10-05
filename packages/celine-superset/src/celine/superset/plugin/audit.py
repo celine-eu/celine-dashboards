@@ -2,9 +2,15 @@
 
 The record is the platform's (`celine.sdk.audit`): one JSON object per line on the logger
 ``celine.audit``, the same fields in the same order, ``null`` for an unknown value. The plugin
-runs in Superset's own interpreter and does not depend on the SDK (ADR-0003), and the SDK reads
-a Starlette request, so the emitter is mirrored here for Flask. A change to the record shape must
-be made in both.
+runs in Superset's own interpreter, where the SDK cannot be installed: apache-superset 6.0.0 pins
+``cryptography<45`` and celine-sdk needs ``>=46`` (see ``auth/groups.py``). So the emitter is
+mirrored here. A change to the record shape must be made in both.
+
+``service_account`` is this module's :func:`is_service_account`, not the SDK's: the two agree on
+every token Superset accepts (a person's token, a client-credentials token with or without
+``preferred_username``), and differ only on claim shapes Keycloak does not issue (a non-empty
+``groups`` claim that holds no group name; a ``preferred_username`` that is not a string), where
+this one answers ``false``. ``test_audit.py`` pins its verdicts.
 
 No superset imports, so the tests exercise it without installing Superset (as `access.py`).
 
@@ -46,6 +52,12 @@ from typing import Any
 from flask import g, has_request_context, request
 
 from celine.superset.auth.groups import _org_groups
+
+# TODO: the next celine-sdk release (after 1.24.0) ships `audit_access` /
+# `audit_denied(..., request=flask.request)`, which would replace the emitter below once
+# the plugin can depend on the SDK (Superset's `cryptography<45` pin against the SDK's
+# `>=46`). The SDK takes no `service_account=`, so its `is_service_account` must first
+# give this module's verdicts (`test_audit.py`).
 
 AUDIT_LOGGER = "celine.audit"
 #: Every record of this process carries it (``configure_audit`` in the SDK).

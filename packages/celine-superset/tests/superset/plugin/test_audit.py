@@ -127,6 +127,110 @@ def test_a_service_account_is_flagged(records):
     assert record["client_id"] == "celine-cli"
 
 
+_SUB = {"sub": "5f0c7a52-0000-4000-8000-000000000003"}
+
+
+@pytest.mark.parametrize(
+    "claims, service_account",
+    [
+        pytest.param(USER, False, id="person via oauth2-proxy"),
+        pytest.param(
+            {**_SUB, "azp": "svc-example", "preferred_username": "member.two"},
+            False,
+            id="person without email",
+        ),
+        pytest.param(
+            {**_SUB, "azp": "oauth2_proxy", "organization": {"example-rec": {}}},
+            False,
+            id="organisation member without group, azp only",
+        ),
+        pytest.param(
+            {
+                **_SUB,
+                "azp": "svc-example",
+                "client_id": "svc-example",
+                "organization": {"example-rec": {"groups": ["/viewers"]}},
+            },
+            False,
+            id="organisation group",
+        ),
+        pytest.param(
+            {
+                **_SUB,
+                "azp": "svc-example",
+                "client_id": "svc-example",
+                "groups": ["/admins"],
+            },
+            False,
+            id="realm group",
+        ),
+        pytest.param(
+            {
+                **_SUB,
+                "azp": "svc-example",
+                "preferred_username": "service-account-svc-example",
+                "email": "svc@rec.example.org",
+            },
+            True,
+            id="svc client with keycloak username",
+        ),
+        pytest.param(
+            {**_SUB, "azp": "svc-example", "gty": "client-credentials"},
+            True,
+            id="client-credentials grant type",
+        ),
+        pytest.param(
+            {**_SUB, "azp": "svc-example", "client_id": "svc-example"},
+            True,
+            id="client id and no person",
+        ),
+        pytest.param(
+            {**_SUB, "azp": "svc-example", "jti": "trrtcc:0000"},
+            True,
+            id="client credentials, azp only",
+        ),
+        pytest.param(
+            {**_SUB, "azp": "oauth2_proxy", "jti": "onrtro:0000"},
+            False,
+            id="password grant, azp only",
+        ),
+        # Shapes Keycloak does not issue: this module's verdict, kept as it is.
+        pytest.param(
+            {
+                **_SUB,
+                "azp": "svc-example",
+                "client_id": "svc-example",
+                "groups": "admins",
+            },
+            False,
+            id="groups claim not a list",
+        ),
+        pytest.param(
+            {**_SUB, "azp": "svc-example", "client_id": "svc-example", "groups": [""]},
+            False,
+            id="groups claim without a name",
+        ),
+        pytest.param(
+            {
+                **_SUB,
+                "azp": "svc-example",
+                "client_id": "svc-example",
+                "preferred_username": 7,
+            },
+            False,
+            id="username not a string",
+        ),
+    ],
+)
+def test_the_service_account_verdict_per_token(records, claims, service_account):
+    """`service_account` for every kind of token Superset accepts (see `audit.is_service_account`)."""
+    _respond("/api/v1/dashboard/12", claims=claims)
+    [(_, record)] = records()
+    assert record["service_account"] is service_account
+    assert record["sub"] == claims["sub"]
+    assert record["client_id"] == claims["azp"]
+
+
 def test_the_route_is_the_rule_not_the_path_or_query(records):
     _respond("/superset/dashboard/sales-overview/?standalone=1&native_filters=x")
     [(_, record)] = records()
