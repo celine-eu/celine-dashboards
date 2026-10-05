@@ -5,7 +5,9 @@ description = "CELINE Superset SSO plugin and management CLI"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "pyjwt>=2.10.1",
+    # 2.14 is the floor the rest of the platform holds (celine-sdk requires it):
+    # the earlier releases accept tokens the later ones reject.
+    "pyjwt>=2.14",
 ]
 
 [project.optional-dependencies]

@@ -9,8 +9,9 @@ dependencies = [
     "celine-sdk>=2.0.0",
     # allow_unauthenticated_access and @allow_unauthenticated arrived in 2.13.
     "jupyter-server>=2.13.0",
-    # [crypto]: RS256 verification needs cryptography.
-    "pyjwt[crypto]>=2.10.1",
+    # [crypto]: RS256 verification needs cryptography. 2.14 is the floor the
+    # rest of the platform holds (celine-sdk requires it).
+    "pyjwt[crypto]>=2.14",
     "requests>=2.32.5",
     # [all] preserves today's environment exactly. celine-utils 2.0 put the
     # pipeline and admin stacks behind extras; this package imports nothing
