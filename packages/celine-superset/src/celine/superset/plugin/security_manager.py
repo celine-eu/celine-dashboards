@@ -4,7 +4,7 @@ import os
 import urllib.parse
 from typing import Any, Optional
 
-from flask import Response, current_app, g, request
+from flask import Response, after_this_request, current_app, g, request
 from flask_login import current_user, login_user, logout_user
 from superset.exceptions import SupersetSecurityException
 from superset.security import SupersetSecurityManager
@@ -12,7 +12,7 @@ from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
 
 from celine.superset.auth.jwt import check_configuration, extract_jwt_claims
 from celine.superset.auth.user import resolve_superset_user
-from celine.superset.plugin import refusal
+from celine.superset.plugin import audit, refusal
 from celine.superset.plugin.access import (
     ACCESS_KEY,
     ORG_SLUGS_KEY,
@@ -126,6 +126,16 @@ def _check_datasource_org(datasource: Any) -> None:
     logger.info("_check_datasource_org: table=%s PASS", table_name)
 
 
+def _token_presented() -> bool:
+    """Whether the request carried an access token; one without is not audited."""
+    headers = request.headers
+    return bool(
+        headers.get("X-Auth-Request-Access-Token")
+        or headers.get("X-Forwarded-Access-Token")
+        or headers.get("Authorization", "").lower().startswith("bearer ")
+    )
+
+
 class OAuth2ProxySecurityManager(SupersetSecurityManager):
 
     authremoteuserview = OAuth2ProxyAuthRemoteUserView
@@ -188,12 +198,18 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
                 try:
                     _check_datasource_org(ds)
                 except SupersetSecurityException:
+                    dataset_id = getattr(ds, "id", None)
+                    audit.note_refusal(
+                        "not_in_organisation",
+                        f"dataset:{dataset_id}" if dataset_id is not None else None,
+                    )
                     raise
                 except Exception:
                     logger.exception(
                         "raise_for_access: org check failed for %s",
                         getattr(ds, "table_name", ds),
                     )
+                    audit.note_refusal("check_failed")
                     raise SupersetSecurityException(
                         SupersetError(
                             message="Dataset access check failed.",
@@ -280,13 +296,19 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
 
         _patch_dataset_filter_once()
 
+        # One audit record per request, written once the response status is known.
+        after_this_request(audit.record_response)
+
         sm: SupersetSecurityManager = current_app.appbuilder.sm  # type: ignore
 
         try:
             claims = extract_jwt_claims(request.headers)
             if not claims:
                 logger.warning("JWT extraction failed for %s — not authenticated", request.path)
+                if _token_presented():
+                    audit.deny_request("invalid_token")
                 return OAuth2ProxySecurityManager._unauthenticated()
+            audit.remember_claims(claims)
 
             # Re-use the existing session only when the incoming JWT belongs to the
             # same user already logged in — prevents session fixation when a
@@ -309,6 +331,7 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
                 logger.warning(
                     "User resolution failed for sub=%s — access denied", claims.get("sub")
                 )
+                audit.deny_request("no_role")
                 return OAuth2ProxySecurityManager._forbidden()
 
             login_user(user, remember=False)
@@ -325,5 +348,6 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             logger.exception(
                 "Authentication error in before_request for %s", request.path
             )
+            audit.deny_request("authentication_error")
             return OAuth2ProxySecurityManager._unauthenticated()
         return None

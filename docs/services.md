@@ -44,6 +44,16 @@ Users with no mapped role cannot access Superset.
 
 Datasets classified `pii`, with `row_filters` or `consent_required`, `secret`, without an owner that has a Keycloak organization, or without a governance entry are tagged `operators`. A dataset the sync has not tagged is also `Admin` only.
 
+### Access Audit
+
+Who read which dashboard, chart, dataset or SQL Lab query, and who was refused, is logged on
+`celine.audit` in the platform's record shape, one JSON line per request, naming the caller by
+token `sub` only. See the [plugin README](../packages/celine-superset/README.md#access-audit)
+and [ADR-0004](decisions/ADR-0004-superset-audits-the-request-in-the-platform-record.md).
+
+The API description (`/swagger/v1`, `/api/v1/_openapi`) is served in dev only, unless
+`CELINE_PUBLIC_DOCS=true`.
+
 ### Docker Image
 
 ```

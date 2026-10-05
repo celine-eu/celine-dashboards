@@ -38,6 +38,9 @@ SKIP_SSL_VERIFY_ENV = "CUSTOM_SECURITY_MANAGER_SKIP_SSL_VERIFY"
 POSTURE_ENV_VARS = ("CELINE_ENV", "ENVIRONMENT")
 #: The only posture value that relaxes anything.
 DEV = "dev"
+#: Serves the API description outside dev when true (``celine.sdk.posture``).
+PUBLIC_DOCS_ENV = "CELINE_PUBLIC_DOCS"
+_TRUE = ("true", "1", "yes", "on")
 #: The issuer trusted in dev when none is configured: the local stack's realm.
 DEV_ISSUER = "http://keycloak.celine.localhost/realms/celine"
 
@@ -61,6 +64,17 @@ def current_env() -> str:
 def is_dev() -> bool:
     """True only when the signal says exactly ``dev``. Unset is hardened."""
     return current_env() == DEV
+
+
+def api_docs_enabled() -> bool:
+    """Whether Superset serves its API description (``/swagger/v1``, ``/api/v1/_openapi``).
+
+    The platform rule of ``celine.sdk.posture.docs_urls``: on in dev, off anywhere else unless
+    ``CELINE_PUBLIC_DOCS`` is ``true``/``1``/``yes``/``on``. Read by ``FAB_API_SWAGGER_UI``.
+    """
+    if is_dev():
+        return True
+    return os.environ.get(PUBLIC_DOCS_ENV, "").strip().lower() in _TRUE
 
 
 def trusted_issuer() -> str:

@@ -28,6 +28,7 @@ from flask_caching.backends.filesystemcache import FileSystemCache
 from flask_appbuilder.security.manager import AUTH_REMOTE_USER
 
 
+from celine.superset.auth.jwt import api_docs_enabled
 from celine.superset.plugin.security_manager import OAuth2ProxySecurityManager
 
 DB_DIALECT = os.getenv("DB_DIALECT", "postgres")
@@ -96,6 +97,10 @@ AUTH_ROLES_SYNC_AT_LOGIN = True
 # SESSION_COOKIE_SECURE = False
 # WTF_CSRF_ENABLED = False
 
+
+# The API description (/swagger/v1, /api/v1/_openapi): on in dev, off elsewhere unless
+# CELINE_PUBLIC_DOCS=true. `celine-superset generate` reads it from a dev Superset.
+FAB_API_SWAGGER_UI = api_docs_enabled()
 
 # Trust the proxy (REQUIRED if using X-Forwarded headers)
 ENABLE_PROXY_FIX = True

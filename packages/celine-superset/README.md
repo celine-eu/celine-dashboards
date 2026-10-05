@@ -15,6 +15,8 @@ identifies every request from the Keycloak access token oauth2-proxy forwards
 | `CUSTOM_SECURITY_MANAGER_KEYCLOAK_AUDIENCE` | no | comma-separated; when set, the token's `aud` must contain one of them |
 | `CUSTOM_SECURITY_MANAGER_SKIP_SSL_VERIFY` | no | `true` skips TLS verification of the discovery and JWKS fetches (self-signed issuers only) |
 | `CELINE_ENV` (then `ENVIRONMENT`) | no | posture; only `dev` relaxes, unset is hardened |
+| `CELINE_PUBLIC_DOCS` | no | `true` serves the API description (`/swagger/v1`, `/api/v1/_openapi`) outside dev; off by default (`FAB_API_SWAGGER_UI`) |
+| `CELINE_AUDIT_PSEUDONYM_KEY` | no | keys the hash that stands in for a personal identifier in an audit record |
 
 Behaviour ([ADR-0003](../../docs/decisions/ADR-0003-superset-trusts-one-configured-issuer.md)):
 
@@ -25,6 +27,30 @@ Behaviour ([ADR-0003](../../docs/decisions/ADR-0003-superset-trusts-one-configur
 - Without an issuer, Superset does not start (`InsecureConfiguration` when the security
   manager is built: web server, workers and CLI alike), unless `CELINE_ENV=dev`, where the
   issuer defaults to the local realm `http://keycloak.celine.localhost/realms/celine`.
+
+## Access audit
+
+Every request the plugin identifies gets at most one record on the logger `celine.audit`, in
+the platform's shape (`celine.sdk.audit`: `event`, `service`, `sub`, `client_id`,
+`service_account`, `action`, `method`, `route`, `resource`, `outcome`, `reason`, `request_id`,
+`trace_id`, `ts`), one JSON object per line, written once the response status is known
+([ADR-0004](../../docs/decisions/ADR-0004-superset-audits-the-request-in-the-platform-record.md)):
+
+| The request | Record |
+|---|---|
+| a read listed in `plugin/audit.py` `READS` (dashboard, chart and chart data, explore, dataset, SQL Lab, saved query, export), answered below 400 | `access`, `allowed` |
+| any request answered 401 or 403 by a verified caller | `denied`, at `WARNING` |
+| a token that fails verification, or a caller granted no role | `denied`, reason `invalid_token` / `no_role` |
+| a listed read answered with another error | `access`, `error`, reason `http <status>` |
+
+- The caller is the token's `sub` and `azp`, never the Superset username (the token's
+  `preferred_username` or email). A request without a token is not recorded.
+- `resource` is a Superset id with its kind: `dashboard:12`, `chart:5`, `dataset:7`,
+  `query:<client id>`. A refusal by the dataset tag carries `reason=not_in_organisation`.
+- SQL Lab is recorded as `database:<id>/sql:<16 hex>`, the SHA-256 of the statement: the SQL
+  text is never in a record.
+- `route` is the Flask rule (`/api/v1/dashboard/<id_or_slug>`), never the path or query.
+- Superset's own event log (the `logs` table) is unchanged.
 
 ## Tests
 
