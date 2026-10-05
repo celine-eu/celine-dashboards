@@ -40,3 +40,4 @@ edited to say something else.
 |---|---|
 | [ADR-0001](ADR-0001-authority-comes-from-the-platform-role-and-one-organisation.md) | authority comes from the platform role and from one organisation, nothing else |
 | [ADR-0002](ADR-0002-jupyter-fails-closed-and-trusts-one-issuer.md) | Jupyter fails closed: its own server command, one trusted issuer, no server token |
+| [ADR-0003](ADR-0003-superset-trusts-one-configured-issuer.md) | Superset trusts one configured issuer and does not start without it outside dev |

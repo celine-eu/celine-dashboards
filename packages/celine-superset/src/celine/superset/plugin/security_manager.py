@@ -10,7 +10,7 @@ from superset.exceptions import SupersetSecurityException
 from superset.security import SupersetSecurityManager
 from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
 
-from celine.superset.auth.jwt import extract_jwt_claims
+from celine.superset.auth.jwt import check_configuration, extract_jwt_claims
 from celine.superset.auth.user import resolve_superset_user
 from celine.superset.plugin import refusal
 from celine.superset.plugin.access import (
@@ -129,6 +129,12 @@ def _check_datasource_org(datasource: Any) -> None:
 class OAuth2ProxySecurityManager(SupersetSecurityManager):
 
     authremoteuserview = OAuth2ProxyAuthRemoteUserView
+
+    def __init__(self, appbuilder: Any) -> None:
+        # Fails closed: outside CELINE_ENV=dev, no trusted issuer means Superset does not
+        # start (ADR-0003). Every process that builds the app (web, workers, CLI) checks it.
+        check_configuration()
+        super().__init__(appbuilder)
 
     def can_access_all_datasources(self) -> bool:
         """Only operators (Admin, i.e. the realm role platform-admin).

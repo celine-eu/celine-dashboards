@@ -47,13 +47,23 @@ Cookie sharing across `*.celine.localhost` means a single login grants access to
 
 ## JWT Validation
 
-Each application validates JWTs locally using the Keycloak JWKS endpoint:
+Each application validates the access token locally, against **one configured issuer**
+(the realm URL). A token's `iss` is compared with that issuer before any key is fetched, and
+the keys come from the configuration (or the configured issuer's discovery document), never
+from the token: a validly signed token of any other issuer, another realm of the same
+Keycloak included, is refused. Signatures must be RS256; `exp` and `iss` are required.
 
-```
-http://keycloak:8080/realms/celine/protocol/openid-connect/certs
-```
+| | Superset (`celine-superset`) | Jupyter (`celine-jupyter`) |
+|---|---|---|
+| trusted issuer | `CUSTOM_SECURITY_MANAGER_KEYCLOAK_ISSUER` | `CELINE_JUPYTER_JWT_ISSUER` |
+| JWKS URL (optional; default: from the issuer's discovery document) | `CUSTOM_SECURITY_MANAGER_KEYCLOAK_JWKS_URL` | `CELINE_JUPYTER_JWKS_URL` |
+| audience (optional; comma-separated for Superset) | `CUSTOM_SECURITY_MANAGER_KEYCLOAK_AUDIENCE` | `CELINE_JUPYTER_JWT_AUDIENCE` |
+| no issuer configured | does not start, unless `CELINE_ENV=dev` (then the local realm `http://keycloak.celine.localhost/realms/celine`) | does not start |
+| decision | [ADR-0003](decisions/ADR-0003-superset-trusts-one-configured-issuer.md) | [ADR-0002](decisions/ADR-0002-jupyter-fails-closed-and-trusts-one-issuer.md) |
 
-The JWKS is fetched once at startup and cached. JWT signatures use RS256.
+The posture signal for Superset is `CELINE_ENV`, then `ENVIRONMENT`; only the value `dev`
+relaxes, and unset is hardened (the platform rule of `celine.sdk.posture`). Superset's own
+`SUPERSET_ENV` plays no part. Keys are fetched on first use and cached per key id.
 
 ## Service / CLI Tokens
 
