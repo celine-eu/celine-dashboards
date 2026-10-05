@@ -50,6 +50,8 @@ Who read which dashboard, chart, dataset or SQL Lab query, and who was refused, 
 `celine.audit` in the platform's record shape, one JSON line per request, naming the caller by
 token `sub` only. See the [plugin README](../packages/celine-superset/README.md#access-audit)
 and [ADR-0004](decisions/ADR-0004-superset-audits-the-request-in-the-platform-record.md).
+The plugin's other log lines name the caller by `sub` too, never by username, email or name
+([Log lines](../packages/celine-superset/README.md#log-lines)).
 
 The API description (`/swagger/v1`, `/api/v1/_openapi`) is served in dev only, unless
 `CELINE_PUBLIC_DOCS=true`.

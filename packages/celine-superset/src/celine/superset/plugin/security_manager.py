@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import urllib.parse
 from typing import Any, Optional
 
 from flask import Response, after_this_request, current_app, g, request
@@ -38,6 +37,16 @@ SSO_BASE_URL = os.getenv("CUSTOM_SECURITY_MANAGER_SSO_BASE_URL", "")
 _filter_patched = False
 
 
+def _caller() -> str:
+    """The caller as log lines name it: the token's `sub`, never the Superset username.
+
+    The username is the token's `preferred_username` (often an email address); the `sub` is
+    what the audit record on `celine.audit` names, so a log line and a record line up.
+    """
+    claims = audit.current_claims() or {}
+    return str(claims.get("sub") or "anonymous")
+
+
 def _user_roles() -> list:
     return getattr(current_user, "roles", None) or []
 
@@ -72,19 +81,18 @@ def _patch_dataset_filter_once() -> None:
         from sqlalchemy import text
 
         role_names = _user_role_names()
-        username = getattr(current_user, "username", "anonymous")
 
         # Qualify with the actual table name to avoid ambiguity when DatasourceFilter
         # joins tables + dbs (both have an `extra` column).
         filter_sql = dataset_filter_sql(base_model.__tablename__, role_names)
         if filter_sql is None:
-            logger.info("_org_filter: user=%s is an operator — default Superset filter", username)
+            logger.info("_org_filter: sub=%s is an operator — default Superset filter", _caller())
             return _orig(base_model, *args)
 
         full_sql, bind_params = filter_sql
         logger.info(
-            "_org_filter: user=%s roles=%s sql=%s params=%s",
-            username,
+            "_org_filter: sub=%s roles=%s sql=%s params=%s",
+            _caller(),
             role_names,
             full_sql,
             bind_params,
@@ -154,8 +162,8 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
         """
         result = _is_operator()
         logger.info(
-            "can_access_all_datasources: user=%s roles=%s result=%s",
-            getattr(current_user, "username", "anonymous"),
+            "can_access_all_datasources: sub=%s roles=%s result=%s",
+            _caller(),
             [r.name for r in _user_roles()],
             result,
         )
@@ -182,8 +190,8 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
     ) -> None:
         """Enforce the dataset tag on every datasource access path, for non-operators."""
         logger.info(
-            "raise_for_access: user=%s datasource=%s viz=%s query_context=%s",
-            getattr(current_user, "username", "anonymous"),
+            "raise_for_access: sub=%s datasource=%s viz=%s query_context=%s",
+            _caller(),
             getattr(datasource, "table_name", datasource),
             type(viz).__name__ if viz else None,
             type(query_context).__name__ if query_context else None,
@@ -256,8 +264,8 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
         """Legacy hook — kept for older Superset code paths."""
         table_name = getattr(datasource, "table_name", repr(datasource))
         logger.info(
-            "datasource_access: user=%s table=%s",
-            getattr(current_user, "username", "anonymous"),
+            "datasource_access: sub=%s table=%s",
+            _caller(),
             table_name,
         )
         if _is_operator():
@@ -342,7 +350,9 @@ class OAuth2ProxySecurityManager(SupersetSecurityManager):
             # validate it as a Superset JWT (it only accepts HS256, not RS256).
             request.environ.pop("HTTP_AUTHORIZATION", None)
 
-            logger.info("Authenticated user=%s via KC JWT", user.username)
+            logger.info(
+                "Authenticated sub=%s azp=%s via KC JWT", claims.get("sub"), claims.get("azp")
+            )
 
         except Exception:
             logger.exception(

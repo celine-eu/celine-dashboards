@@ -52,6 +52,14 @@ the platform's shape (`celine.sdk.audit`: `event`, `service`, `sub`, `client_id`
 - `route` is the Flask rule (`/api/v1/dashboard/<id_or_slug>`), never the path or query.
 - Superset's own event log (the `logs` table) is unchanged.
 
+## Log lines
+
+The plugin's operational log lines (`celine.superset.plugin.security_manager`,
+`celine.superset.auth.user`: sign-in, user creation, the dataset filter, the access checks) name
+the caller by the token's `sub`, the value the audit record carries, at every level. The
+Superset username (the token's `preferred_username`, often an email address), the email and the
+given and family names are never in a log line; a new user is logged with its `sub` and roles.
+
 ## Tests
 
 ```bash

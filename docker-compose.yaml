@@ -26,6 +26,15 @@ x-common: &common
     # The plugin source, ahead of the copy baked into the image, so a code change needs a
     # restart rather than a rebuild. Same arrangement as the jupyter service.
     PYTHONPATH: /opt/celine-superset/src:/app/pythonpath:/app/docker/pythonpath_dev
+    # Posture signal: only CELINE_ENV=dev relaxes, unset is hardened. No default here:
+    # celine-dev's docker tasks export CELINE_ENV=dev for the local stack.
+    CELINE_ENV: ${CELINE_ENV:-}
+    # The one issuer whose tokens are trusted (the realm URL). Tokens of any other issuer,
+    # including another realm of the same Keycloak, are refused before any key is fetched.
+    # Unset, Superset does not start unless CELINE_ENV=dev, which defaults it to the local
+    # realm http://keycloak.celine.localhost/realms/celine. Set here, it overrides the
+    # env_file values above.
+    CUSTOM_SECURITY_MANAGER_KEYCLOAK_ISSUER: ${CUSTOM_SECURITY_MANAGER_KEYCLOAK_ISSUER:-}
   volumes:
     - ./config/superset:/app/docker
     - ./packages/celine-superset/src:/opt/celine-superset/src

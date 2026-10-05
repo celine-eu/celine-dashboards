@@ -51,6 +51,8 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
     - Users with neither are denied (returns None).
     - Stores org_slugs as JSON in user.extra for downstream RLS setup.
     """
+    # Log lines name the caller by `sub` only: the username and email are personal.
+    sub = claims.get("sub")
     username = (
         claims.get("preferred_username")
         or claims.get("email")
@@ -59,7 +61,7 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
     )
     if not username:
         logger.warning(
-            "resolve_superset_user: no username in claims (sub=%s)", claims.get("sub")
+            "resolve_superset_user: no username in claims (sub=%s)", sub
         )
         return None
 
@@ -84,8 +86,8 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
             roles.append(org_role)
 
     logger.debug(
-        "resolve_superset_user: username=%s azp=%s access_roles=%s org_slugs=%s org_role_names=%s resolved_roles=%s",
-        username,
+        "resolve_superset_user: sub=%s azp=%s access_roles=%s org_slugs=%s org_role_names=%s resolved_roles=%s",
+        sub,
         azp,
         access_roles,
         org_slugs,
@@ -94,8 +96,8 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
     )
     if not roles:
         logger.warning(
-            "resolve_superset_user: username=%s has no matching Superset roles — access denied",
-            username,
+            "resolve_superset_user: sub=%s has no matching Superset roles — access denied",
+            sub,
         )
         return None
 
@@ -112,15 +114,14 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
 
     if not sm.auth_user_registration:
         logger.warning(
-            "resolve_superset_user: user %s not found and registration disabled",
-            username,
+            "resolve_superset_user: sub=%s has no user and registration is disabled",
+            sub,
         )
         return None
 
     logger.info(
-        "resolve_superset_user: creating new user username=%s email=%s roles=%s",
-        username,
-        claims.get("email", f"{username}@local"),
+        "resolve_superset_user: creating a user for sub=%s roles=%s",
+        sub,
         [r.name for r in roles],
     )
     user = sm.add_user(
@@ -138,8 +139,8 @@ def resolve_superset_user(sm: SecurityManagerProtocol, claims: dict) -> Any:
         sm.update_user_auth_stat(user)
     else:
         logger.error(
-            "resolve_superset_user: add_user returned falsy for username=%s — DB error?",
-            username,
+            "resolve_superset_user: add_user returned falsy for sub=%s — DB error?",
+            sub,
         )
 
     return user
